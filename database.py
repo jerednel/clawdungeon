@@ -48,17 +48,24 @@ FACTIONS = {
     }
 }
 
-# Item Database (static)
-ITEM_DATABASE = {
-    "rusty_dagger": {"name": "Rusty Dagger", "type": "weapon", "attack": 3, "value": 5},
-    "wooden_sword": {"name": "Wooden Sword", "type": "weapon", "attack": 5, "value": 10},
-    "iron_sword": {"name": "Iron Sword", "type": "weapon", "attack": 12, "value": 50},
-    "mage_staff": {"name": "Apprentice Staff", "type": "weapon", "attack": 4, "magic": 8, "value": 15},
-    "leather_armor": {"name": "Leather Armor", "type": "armor", "defense": 5, "value": 20},
-    "cloth_robes": {"name": "Cloth Robes", "type": "armor", "defense": 2, "magic": 5, "value": 10},
-    "health_potion": {"name": "Health Potion", "type": "consumable", "effect": "heal", "amount": 25, "value": 10},
-    "mana_potion": {"name": "Mana Potion", "type": "consumable", "effect": "restore_mana", "amount": 20, "value": 10},
-}
+# Item Database (loaded from JSON)
+def _load_item_database() -> Dict:
+    """Load item database from JSON file"""
+    item_db_path = BASE_PATH / "items" / "item_database.json"
+    with open(item_db_path) as f:
+        data = json.load(f)
+    return data.get("item_database", {})
+
+ITEM_DATABASE = _load_item_database()
+
+def _load_drop_tables() -> Dict:
+    """Load drop tables from JSON file"""
+    item_db_path = BASE_PATH / "items" / "item_database.json"
+    with open(item_db_path) as f:
+        data = json.load(f)
+    return data.get("drop_tables", {})
+
+DROP_TABLES = _load_drop_tables()
 
 # City Definitions (static)
 CITIES = {
