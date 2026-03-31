@@ -273,9 +273,21 @@ class Database:
             )
         """)
         
+        # Talents table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS talents (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                player_id TEXT NOT NULL,
+                talent_name TEXT NOT NULL,
+                points_spent INTEGER DEFAULT 0,
+                FOREIGN KEY (player_id) REFERENCES players (id),
+                UNIQUE(player_id, talent_name)
+            )
+        """)
+
         self.conn.commit()
         self._init_quests()
-    
+
     def close(self):
         if self.conn:
             self.conn.close()
@@ -1009,3 +1021,149 @@ class Database:
                 return False, "Quest already completed"
         
         return True, "Available"
+
+    # Talent system
+    TALENT_TREES = {
+        'warrior': {
+            'shield_mastery': {'name': 'Shield Mastery', 'description': '+10% block per point', 'max_points': 5, 'per_point': {'defense_percent': 0.10}, 'min_level': 1},
+            'berserker_rage': {'name': 'Berserker Rage', 'description': '+5% damage when HP < 50% per point', 'max_points': 5, 'per_point': {'low_hp_damage_percent': 0.05}, 'min_level': 1},
+            'toughness': {'name': 'Toughness', 'description': '+20 HP per point', 'max_points': 5, 'per_point': {'health_flat': 20}, 'min_level': 1},
+            'cleave': {'name': 'Cleave', 'description': 'Hit adjacent enemies', 'max_points': 1, 'per_point': {'cleave': True}, 'min_level': 10}
+        },
+        'mage': {
+            'elemental_power': {'name': 'Elemental Power', 'description': '+10% spell damage per point', 'max_points': 5, 'per_point': {'magic_damage_percent': 0.10}, 'min_level': 1},
+            'mana_pool': {'name': 'Mana Pool', 'description': '+30 MP per point', 'max_points': 5, 'per_point': {'mana_flat': 30}, 'min_level': 1},
+            'spell_crit': {'name': 'Spell Crit', 'description': '+5% crit chance per point', 'max_points': 5, 'per_point': {'critical_chance': 0.05}, 'min_level': 1},
+            'chain_lightning': {'name': 'Chain Lightning', 'description': 'Damage jumps to 2nd target', 'max_points': 1, 'per_point': {'chain_attack': True}, 'min_level': 10}
+        },
+        'rogue': {
+            'poison_blades': {'name': 'Poison Blades', 'description': '+10% poison damage per point', 'max_points': 5, 'per_point': {'damage_percent': 0.10}, 'min_level': 1},
+            'evasion': {'name': 'Evasion', 'description': '+5% dodge per point', 'max_points': 5, 'per_point': {'dodge_chance': 0.05}, 'min_level': 1},
+            'backstab': {'name': 'Backstab', 'description': '+15% crit damage per point', 'max_points': 5, 'per_point': {'crit_damage_percent': 0.15}, 'min_level': 1},
+            'vanish': {'name': 'Vanish', 'description': 'Escape combat once', 'max_points': 1, 'per_point': {'vanish': True}, 'min_level': 10}
+        },
+        'cleric': {
+            'healing_light': {'name': 'Healing Light', 'description': '+15% healing per point', 'max_points': 5, 'per_point': {'healing_percent': 0.15}, 'min_level': 1},
+            'divine_protection': {'name': 'Divine Protection', 'description': '+5% damage reduction per point', 'max_points': 5, 'per_point': {'damage_reduction': 0.05}, 'min_level': 1},
+            'holy_power': {'name': 'Holy Power', 'description': '+10 MP, +5 HP per point', 'max_points': 5, 'per_point': {'mana_flat': 10, 'health_flat': 5}, 'min_level': 1},
+            'resurrection': {'name': 'Resurrection', 'description': 'Auto-revive once per day', 'max_points': 1, 'per_point': {'resurrection': True}, 'min_level': 10}
+        }
+    }
+
+    def get_talent_tree(self, player_id: str) -> Optional[Dict]:
+        """Get talent tree for player's class with current investments"""
+        character = self.get_active_character(player_id)
+        if not character:
+            return None
+
+        char_class = character['class']
+        tree = self.TALENT_TREES.get(char_class, {})
+
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT talent_name, points_spent FROM talents WHERE player_id = ?",
+            (player_id,)
+        )
+        invested = {row[0]: row[1] for row in cursor.fetchall()}
+
+        total_spent = sum(invested.values())
+        available_points = max(0, character['level'] - 1 - total_spent)
+
+        talents = {}
+        for talent_id, talent_def in tree.items():
+            talents[talent_id] = {
+                **talent_def,
+                'points_spent': invested.get(talent_id, 0),
+                'can_invest': (
+                    invested.get(talent_id, 0) < talent_def['max_points']
+                    and character['level'] >= talent_def['min_level']
+                    and available_points > 0
+                )
+            }
+
+        return {
+            'class': char_class,
+            'level': character['level'],
+            'total_points': max(0, character['level'] - 1),
+            'spent_points': total_spent,
+            'available_points': available_points,
+            'talents': talents
+        }
+
+    def spend_talent_point(self, player_id: str, talent_name: str) -> tuple:
+        """Spend a talent point. Returns (success, message)"""
+        character = self.get_active_character(player_id)
+        if not character:
+            return False, "No active character"
+
+        char_class = character['class']
+        tree = self.TALENT_TREES.get(char_class, {})
+        talent_def = tree.get(talent_name)
+
+        if not talent_def:
+            return False, "Talent not found for your class"
+
+        if character['level'] < talent_def['min_level']:
+            return False, f"Requires level {talent_def['min_level']}"
+
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT COALESCE(SUM(points_spent), 0) FROM talents WHERE player_id = ?",
+            (player_id,)
+        )
+        total_spent = cursor.fetchone()[0]
+        available = max(0, character['level'] - 1 - total_spent)
+
+        if available <= 0:
+            return False, "No talent points available"
+
+        cursor.execute(
+            "SELECT COALESCE(points_spent, 0) FROM talents WHERE player_id = ? AND talent_name = ?",
+            (player_id, talent_name)
+        )
+        row = cursor.fetchone()
+        current = row[0] if row else 0
+
+        if current >= talent_def['max_points']:
+            return False, f"Talent already at max ({talent_def['max_points']} points)"
+
+        cursor.execute("""
+            INSERT INTO talents (player_id, talent_name, points_spent)
+            VALUES (?, ?, 1)
+            ON CONFLICT(player_id, talent_name) DO UPDATE SET points_spent = points_spent + 1
+        """, (player_id, talent_name))
+        self.conn.commit()
+
+        return True, f"Invested in {talent_def['name']} ({current + 1}/{talent_def['max_points']})"
+
+    def get_player_talents(self, player_id: str) -> Dict:
+        """Get player's talent investments as {talent_name: points}"""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT talent_name, points_spent FROM talents WHERE player_id = ?",
+            (player_id,)
+        )
+        return {row[0]: row[1] for row in cursor.fetchall()}
+
+    def get_talent_bonuses(self, player_id: str) -> Dict:
+        """Calculate total bonuses from talents"""
+        character = self.get_active_character(player_id)
+        if not character:
+            return {}
+
+        char_class = character['class']
+        tree = self.TALENT_TREES.get(char_class, {})
+        invested = self.get_player_talents(player_id)
+
+        bonuses = {}
+        for talent_name, points in invested.items():
+            talent_def = tree.get(talent_name)
+            if not talent_def:
+                continue
+            for bonus_key, bonus_val in talent_def['per_point'].items():
+                if isinstance(bonus_val, bool):
+                    bonuses[bonus_key] = bonus_val
+                else:
+                    bonuses[bonus_key] = bonuses.get(bonus_key, 0) + bonus_val * points
+
+        return bonuses
