@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Depends, Header, BackgroundTasks, Query
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from passlib.context import CryptContext
@@ -127,6 +128,18 @@ app = FastAPI(
 @app.get("/", include_in_schema=False)
 async def serve_landing():
     return FileResponse("connect.html")
+
+@app.get("/{filename}", include_in_schema=False)
+async def serve_static(filename: str):
+    """Serve static files (images, HTML) from project root"""
+    import os
+    allowed_extensions = ('.png', '.jpg', '.jpeg', '.gif', '.ico', '.html', '.css', '.js')
+    if not filename.endswith(allowed_extensions):
+        raise HTTPException(status_code=404, detail="Not found")
+    filepath = os.path.join(os.path.dirname(__file__), filename)
+    if not os.path.isfile(filepath):
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(filepath)
 
 # Auth Helpers
 def verify_password(plain_password, hashed_password):
