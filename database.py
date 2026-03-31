@@ -4,6 +4,7 @@ CLAWDUNGEON - Database Layer
 SQLite backend for VPS deployment
 """
 import json
+import random
 import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -400,7 +401,86 @@ class Database:
     # Item database
     def get_item_database(self) -> Dict:
         return ITEM_DATABASE
-    
+
+    def get_inventory_with_details(self, player_id: str) -> Optional[Dict]:
+        """Get player inventory with item details and equipment info"""
+        character = self.get_active_character(player_id)
+        if not character:
+            return None
+
+        item_db = self.get_item_database()
+
+        # Build inventory with details
+        inventory_items = []
+        for item_id in character['inventory']:
+            item_info = item_db.get(item_id, {"name": item_id, "type": "unknown"})
+            inventory_items.append({
+                "id": item_id,
+                **item_info
+            })
+
+        # Build equipment with details
+        equipment_details = {}
+        for slot in ('weapon', 'armor', 'helmet', 'boots', 'accessory'):
+            item_id = character['equipment'].get(slot)
+            if item_id:
+                item_info = item_db.get(item_id, {"name": item_id})
+                equipment_details[slot] = {"id": item_id, **item_info}
+            else:
+                equipment_details[slot] = None
+
+        return {
+            "inventory": inventory_items,
+            "inventory_count": len(character['inventory']),
+            "max_slots": 20,
+            "equipment": equipment_details,
+            "gold": character['gold']
+        }
+
+    def get_loot_drop(self, enemy_type: str) -> Optional[str]:
+        """Roll for a loot drop based on enemy type and drop tables"""
+        common_enemies = ['goblin', 'slime', 'spider']
+        hard_enemies = ['skeleton', 'wolf', 'orc']
+        boss_enemies = ['dragon_ignis', 'skeleton_king']
+
+        if enemy_type in boss_enemies:
+            table = DROP_TABLES.get('bosses', {})
+        elif enemy_type in hard_enemies:
+            table = DROP_TABLES.get('hard_mobs', {})
+        else:
+            table = DROP_TABLES.get('common_mobs', {})
+
+        if not table:
+            return None
+
+        # Roll for rarity
+        roll = random.random()
+        cumulative = 0.0
+        selected_rarity = None
+        for rarity in ['epic', 'rare', 'uncommon', 'common']:
+            cumulative += table.get(rarity, 0)
+            if roll < cumulative:
+                selected_rarity = rarity
+                break
+
+        if not selected_rarity:
+            return None
+
+        # Pick a random item of that rarity (exclude starters and materials)
+        item_db = self.get_item_database()
+        candidates = [
+            item_id for item_id, item in item_db.items()
+            if isinstance(item, dict)
+            and item.get('rarity') == selected_rarity
+            and not item_id.startswith('starter_')
+            and item.get('type') in ('weapon', 'armor', 'consumable')
+        ]
+
+        if not candidates:
+            return None
+
+        return random.choice(candidates)
+
     # Faction methods
     def get_faction_stats(self) -> Dict:
         """Get statistics for all factions (member count, total levels, etc.)"""
