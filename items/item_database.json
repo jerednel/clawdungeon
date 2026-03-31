@@ -1,56 +1,401 @@
 {
   "item_database": {
-    "rusty_dagger": {
-      "name": "Rusty Dagger",
-      "type": "weapon",
-      "attack": 3,
-      "value": 5
-    },
-    "wooden_sword": {
+    "_comment": "CLAWDUNGEON Item Database - 40+ Items across Common, Uncommon, Rare, and Epic tiers",
+    
+    "starter_wooden_sword": {
       "name": "Wooden Sword",
-      "type": "weapon", 
-      "attack": 5,
-      "value": 10
-    },
-    "iron_sword": {
-      "name": "Iron Sword",
       "type": "weapon",
-      "attack": 12,
-      "value": 50
+      "rarity": "common",
+      "attack": 3,
+      "value": 5,
+      "description": "A simple wooden training sword."
     },
-    "mage_staff": {
+    "starter_apprentice_staff": {
       "name": "Apprentice Staff",
       "type": "weapon",
-      "attack": 4,
-      "magic": 8,
-      "value": 15
+      "rarity": "common",
+      "attack": 2,
+      "magic": 5,
+      "value": 8,
+      "description": "A basic staff for novice mages."
     },
-    "leather_armor": {
+    "starter_rusty_daggers": {
+      "name": "Rusty Daggers",
+      "type": "weapon",
+      "rarity": "common",
+      "attack": 4,
+      "speed": 1,
+      "value": 6,
+      "description": "A pair of worn daggers."
+    },
+    "starter_holy_symbol": {
+      "name": "Holy Symbol",
+      "type": "weapon",
+      "rarity": "common",
+      "attack": 2,
+      "healing_power": 3,
+      "value": 10,
+      "description": "A sacred emblem that channels divine power."
+    },
+    "starter_leather_armor": {
       "name": "Leather Armor",
       "type": "armor",
+      "slot": "armor",
+      "rarity": "common",
       "defense": 5,
-      "value": 20
+      "value": 15,
+      "description": "Basic leather protection."
     },
-    "cloth_robes": {
+    "starter_cloth_robes": {
       "name": "Cloth Robes",
       "type": "armor",
+      "slot": "armor",
+      "rarity": "common",
       "defense": 2,
-      "magic": 5,
-      "value": 10
+      "magic": 3,
+      "value": 10,
+      "description": "Simple robes for spellcasters."
     },
+
     "health_potion": {
       "name": "Health Potion",
       "type": "consumable",
+      "rarity": "common",
       "effect": "heal",
       "amount": 25,
-      "value": 10
+      "value": 10,
+      "stackable": true,
+      "max_stack": 99,
+      "description": "Restores 25 HP."
     },
     "mana_potion": {
       "name": "Mana Potion",
       "type": "consumable",
+      "rarity": "common",
       "effect": "restore_mana",
       "amount": 20,
-      "value": 10
+      "value": 10,
+      "stackable": true,
+      "max_stack": 99,
+      "description": "Restores 20 MP."
+    },
+    "small_health_potion": {
+      "name": "Small Health Potion",
+      "type": "consumable",
+      "rarity": "common",
+      "effect": "heal",
+      "amount": 15,
+      "value": 5,
+      "stackable": true,
+      "max_stack": 99,
+      "description": "Restores 15 HP."
+    },
+    "poison_potion": {
+      "name": "Poison Potion",
+      "type": "consumable",
+      "rarity": "uncommon",
+      "effect": "poison_damage",
+      "amount": 20,
+      "value": 15,
+      "stackable": true,
+      "max_stack": 20,
+      "description": "Coats weapon in poison, dealing 20 bonus damage on next attack."
+    },
+
+    "crude_dagger": {
+      "name": "Crude Dagger",
+      "type": "weapon",
+      "rarity": "common",
+      "attack": 1,
+      "value": 3,
+      "description": "Barely better than a sharp stick."
+    },
+    "tattered_cloth": {
+      "name": "Tattered Cloth",
+      "type": "armor",
+      "slot": "armor",
+      "rarity": "common",
+      "defense": 1,
+      "value": 2,
+      "description": "Rags held together by hope."
+    },
+    "rusty_coin": {
+      "name": "Rusty Coin",
+      "type": "material",
+      "rarity": "common",
+      "value": 1,
+      "stackable": true,
+      "max_stack": 999,
+      "description": "An old coin, barely worth anything."
+    },
+    "goblin_ear": {
+      "name": "Goblin Ear",
+      "type": "material",
+      "rarity": "common",
+      "value": 2,
+      "stackable": true,
+      "max_stack": 99,
+      "description": "Proof of goblin slaying."
+    },
+
+    "iron_sword": {
+      "name": "Iron Sword",
+      "type": "weapon",
+      "rarity": "uncommon",
+      "attack": 5,
+      "value": 25,
+      "description": "A reliable iron blade."
+    },
+    "leather_vest": {
+      "name": "Leather Vest",
+      "type": "armor",
+      "slot": "armor",
+      "rarity": "uncommon",
+      "defense": 3,
+      "value": 20,
+      "description": "Lightweight leather protection."
+    },
+    "healing_salve": {
+      "name": "Healing Salve",
+      "type": "consumable",
+      "rarity": "uncommon",
+      "effect": "heal",
+      "amount": 30,
+      "value": 15,
+      "stackable": true,
+      "max_stack": 50,
+      "description": "Restores 30 HP."
+    },
+    "wolf_pelt": {
+      "name": "Wolf Pelt",
+      "type": "material",
+      "rarity": "uncommon",
+      "value": 8,
+      "stackable": true,
+      "max_stack": 20,
+      "description": "Thick fur from a dire wolf."
+    },
+    "bone_fragment": {
+      "name": "Bone Fragment",
+      "type": "material",
+      "rarity": "uncommon",
+      "value": 5,
+      "stackable": true,
+      "max_stack": 99,
+      "description": "A piece of ancient bone."
+    },
+    "worn_shield": {
+      "name": "Worn Shield",
+      "type": "armor",
+      "slot": "accessory",
+      "rarity": "uncommon",
+      "defense": 2,
+      "value": 18,
+      "description": "An old but sturdy shield."
+    },
+
+    "steel_blade": {
+      "name": "Steel Blade",
+      "type": "weapon",
+      "rarity": "rare",
+      "attack": 10,
+      "value": 75,
+      "description": "A finely crafted steel weapon."
+    },
+    "chainmail": {
+      "name": "Chainmail",
+      "type": "armor",
+      "slot": "armor",
+      "rarity": "rare",
+      "defense": 8,
+      "value": 60,
+      "description": "Interlocking metal rings provide good protection."
+    },
+    "greater_health_potion": {
+      "name": "Greater Health Potion",
+      "type": "consumable",
+      "rarity": "rare",
+      "effect": "heal",
+      "amount": 50,
+      "value": 25,
+      "stackable": true,
+      "max_stack": 50,
+      "description": "Restores 50 HP."
+    },
+    "ring_of_power": {
+      "name": "Ring of Power",
+      "type": "armor",
+      "slot": "accessory",
+      "rarity": "rare",
+      "attack": 2,
+      "value": 100,
+      "description": "A magical ring that enhances strength."
+    },
+    "iron_helmet": {
+      "name": "Iron Helmet",
+      "type": "armor",
+      "slot": "helmet",
+      "rarity": "rare",
+      "defense": 4,
+      "health": 10,
+      "value": 45,
+      "description": "Protects your head from harm."
+    },
+    "leather_boots": {
+      "name": "Leather Boots",
+      "type": "armor",
+      "slot": "boots",
+      "rarity": "rare",
+      "defense": 2,
+      "speed": 3,
+      "value": 35,
+      "description": "Sturdy boots for adventuring."
+    },
+    "orc_tusk": {
+      "name": "Orc Tusk",
+      "type": "material",
+      "rarity": "rare",
+      "value": 15,
+      "stackable": true,
+      "max_stack": 20,
+      "description": "A trophy from a defeated orc."
+    },
+    "enchanted_ring": {
+      "name": "Enchanted Ring",
+      "type": "armor",
+      "slot": "accessory",
+      "rarity": "rare",
+      "magic": 3,
+      "mana": 10,
+      "value": 80,
+      "description": "Enhances magical abilities."
+    },
+    "reinforced_bracers": {
+      "name": "Reinforced Bracers",
+      "type": "armor",
+      "slot": "accessory",
+      "rarity": "rare",
+      "defense": 3,
+      "attack": 1,
+      "value": 55,
+      "description": "Metal bracers for added protection."
+    },
+
+    "blade_of_shadows": {
+      "name": "Blade of Shadows",
+      "type": "weapon",
+      "rarity": "epic",
+      "attack": 15,
+      "critical_chance": 0.05,
+      "value": 250,
+      "description": "A blade that strikes from the darkness."
+    },
+    "plate_of_the_guardian": {
+      "name": "Plate of the Guardian",
+      "type": "armor",
+      "slot": "armor",
+      "rarity": "epic",
+      "defense": 12,
+      "health": 50,
+      "value": 300,
+      "description": "Heavy plate armor of legendary defenders."
+    },
+    "staff_of_eternal_flame": {
+      "name": "Staff of Eternal Flame",
+      "type": "weapon",
+      "rarity": "epic",
+      "attack": 12,
+      "magic": 10,
+      "fire_damage": 5,
+      "value": 280,
+      "description": "Wreathed in magical flames that never die."
+    },
+    "crown_of_wisdom": {
+      "name": "Crown of Wisdom",
+      "type": "armor",
+      "slot": "helmet",
+      "rarity": "epic",
+      "defense": 5,
+      "magic": 8,
+      "mana": 30,
+      "value": 220,
+      "description": "Grants immense magical insight."
+    },
+    "boots_of_swiftness": {
+      "name": "Boots of Swiftness",
+      "type": "armor",
+      "slot": "boots",
+      "rarity": "epic",
+      "defense": 3,
+      "speed": 8,
+      "value": 200,
+      "description": "Allows the wearer to move with supernatural speed."
+    },
+    "amulet_of_immortals": {
+      "name": "Amulet of Immortals",
+      "type": "armor",
+      "slot": "accessory",
+      "rarity": "epic",
+      "defense": 4,
+      "health": 25,
+      "healing_power": 5,
+      "value": 350,
+      "description": "An artifact blessed by the gods themselves."
+    },
+    "dragon_scale": {
+      "name": "Dragon Scale",
+      "type": "material",
+      "rarity": "epic",
+      "value": 100,
+      "stackable": true,
+      "max_stack": 10,
+      "description": "A scale from an ancient dragon."
+    },
+
+    "legendary_excalibur": {
+      "name": "Excalibur",
+      "type": "weapon",
+      "rarity": "legendary",
+      "attack": 25,
+      "defense": 5,
+      "holy_damage": 10,
+      "value": 1000,
+      "description": "The legendary sword of kings."
+    },
+    "void_walker_cloak": {
+      "name": "Void Walker Cloak",
+      "type": "armor",
+      "slot": "armor",
+      "rarity": "legendary",
+      "defense": 8,
+      "magic": 15,
+      "speed": 5,
+      "value": 900,
+      "description": "Woven from the fabric of reality itself."
+    }
+  },
+
+  "drop_tables": {
+    "common_mobs": {
+      "description": "Goblins, slimes, easy enemies",
+      "common": 0.70,
+      "uncommon": 0.25,
+      "rare": 0.05,
+      "epic": 0.0
+    },
+    "hard_mobs": {
+      "description": "Skeletons, wolves, orcs",
+      "common": 0.40,
+      "uncommon": 0.40,
+      "rare": 0.18,
+      "epic": 0.02
+    },
+    "bosses": {
+      "description": "Boss enemies - guaranteed rare+",
+      "common": 0.0,
+      "uncommon": 0.0,
+      "rare": 0.80,
+      "epic": 0.20
     }
   }
 }
