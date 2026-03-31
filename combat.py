@@ -7,6 +7,7 @@ import random
 from pathlib import Path
 from typing import Dict, List, Optional
 from claw_engine import Player, load_item_db, BASE_PATH
+from leveling import add_experience, calculate_enemy_xp, get_level_info, get_level_tier
 
 class Enemy:
     ENEMY_TYPES = {
@@ -26,7 +27,8 @@ class Enemy:
         self.health = self.max_health
         self.attack = int(base['attack'] * (1 + (level - 1) * 0.15))
         self.defense = int(base['defense'] * (1 + (level - 1) * 0.1))
-        self.xp_reward = int(base['xp'] * (1 + (level - 1) * 0.3))
+        # Use leveling system for XP calculation
+        self.xp_reward = calculate_enemy_xp(enemy_type, level)
         self.gold_reward = int(base['gold'] * (1 + (level - 1) * 0.2))
         self.level = level
 
@@ -204,7 +206,8 @@ def process_turn(player_name: str, action: str, target: int = 0) -> str:
             player.health = 1  # Barely survived
         else:
             rewards = encounter.get_rewards()
-            player.experience += rewards['xp']
+            # Use leveling system to add XP
+            level_result = add_experience(player.__dict__, rewards['xp'], source="combat victory")
             player.gold += rewards['gold']
             player.inventory.extend(rewards['loot'])
             
@@ -214,6 +217,13 @@ def process_turn(player_name: str, action: str, target: int = 0) -> str:
 💰 Gold Gained: {rewards['gold']}
 📦 Loot: {', '.join(rewards['loot']) or 'None'}
 """
+            # Add level-up messages if applicable
+            if level_result.leveled_up:
+                result += "\n" + "\n".join(level_result.messages)
+            else:
+                # Show XP progress
+                level_info = get_level_info(player.__dict__)
+                result += f"\n📊 XP: {level_info['in_current_level']}/{level_info['xp_needed_for_level']} ({level_info['progress_percentage']}% to level {player.level + 1})"
         
         player.save()
         clear_encounter(player.id)
