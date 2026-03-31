@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CLAWDUNGEON - Player Codex</title>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --gold: #d4a853;
+            --gold-light: #f0d99a;
+            --gold-dark: #8b6914;
+            --amber: #b8860b;
+            --blue-deep: #1a2332;
+            --blue-mid: #2d3a4f;
+            --blue-light: #4a6fa5;
+            --silver: #c0c5ce;
+            --silver-light: #e8eaed;
+            --dark-bg: #0d1117;
+            --darker-bg: #070a0f;
+            --card-bg: rgba(26, 35, 50, 0.6);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--darker-bg);
+            color: var(--silver);
+            min-height: 100vh;
+        }
+
+        /* Header */
+        .header {
+            background: var(--dark-bg);
+            border-bottom: 1px solid var(--gold-dark);
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 {
+            font-family: 'Cinzel', serif;
+            color: var(--gold);
+            font-size: 1.8rem;
+        }
+        .header a {
+            color: var(--gold);
+            text-decoration: none;
+            font-size: 0.9rem;
+        }
+        .header a:hover { color: var(--gold-light); }
+
+        /* Stats bar */
+        .stats-bar {
+            background: var(--blue-deep);
+            padding: 0.8rem 2rem;
+            display: flex;
+            gap: 2rem;
+            font-size: 0.9rem;
+            border-bottom: 1px solid rgba(212, 168, 83, 0.2);
+        }
+        .stat-item { color: var(--silver); }
+        .stat-item span { color: var(--gold); font-weight: 600; }
+
+        /* Grid */
+        .codex-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 1.5rem;
+            padding: 2rem;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        /* Card */
+        .codex-card {
+            background: var(--card-bg);
+            border: 1px solid rgba(212, 168, 83, 0.2);
+            border-radius: 12px;
+            overflow: hidden;
+            transition: transform 0.3s, border-color 0.3s;
+        }
+        .codex-card:hover {
+            transform: translateY(-4px);
+            border-color: var(--gold);
+        }
+        .codex-card.custom-portrait { border-color: var(--gold-dark); }
+
+        .card-portrait {
+            width: 100%;
+            height: 200px;
+            object-fit: cover;
+            background: var(--blue-deep);
+        }
+
+        .card-body { padding: 1rem; }
+
+        .card-name {
+            font-family: 'Cinzel', serif;
+            color: var(--gold);
+            font-size: 1.2rem;
+            margin-bottom: 0.3rem;
+        }
+
+        .card-meta {
+            display: flex;
+            gap: 0.8rem;
+            font-size: 0.8rem;
+            color: var(--silver);
+            margin-bottom: 0.8rem;
+        }
+        .card-meta .class-badge {
+            background: var(--blue-mid);
+            padding: 2px 8px;
+            border-radius: 4px;
+            text-transform: capitalize;
+        }
+        .card-meta .level-badge {
+            color: var(--gold);
+            font-weight: 600;
+        }
+
+        .card-stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.3rem;
+            font-size: 0.8rem;
+        }
+        .card-stats .stat {
+            display: flex;
+            justify-content: space-between;
+            padding: 2px 0;
+        }
+        .card-stats .stat-label { color: var(--silver); }
+        .card-stats .stat-value { color: var(--gold-light); }
+
+        .custom-badge {
+            display: inline-block;
+            background: linear-gradient(135deg, var(--gold-dark), var(--gold));
+            color: var(--darker-bg);
+            font-size: 0.7rem;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 3px;
+            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 4rem 2rem;
+            color: var(--silver);
+        }
+        .empty-state h2 {
+            font-family: 'Cinzel', serif;
+            color: var(--gold);
+            margin-bottom: 1rem;
+        }
+
+        .faction-tag {
+            font-size: 0.75rem;
+            color: var(--blue-light);
+            text-transform: capitalize;
+        }
+
+        @media (max-width: 768px) {
+            .codex-grid { grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); padding: 1rem; }
+            .header { padding: 0.8rem 1rem; }
+            .header h1 { font-size: 1.4rem; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Player Codex</h1>
+        <a href="/">Back to CLAWDUNGEON</a>
+    </div>
+    <div class="stats-bar" id="stats-bar">
+        <div class="stat-item">Total Players: <span id="total-count">0</span></div>
+        <div class="stat-item">Custom Portraits: <span id="portrait-count">0</span></div>
+    </div>
+    <div class="codex-grid" id="codex-grid"></div>
+
+    <script>
+        async function loadCodex() {
+            try {
+                const res = await fetch('/api/codex');
+                const data = await res.json();
+
+                document.getElementById('total-count').textContent = data.count;
+                document.getElementById('portrait-count').textContent =
+                    data.codex.filter(c => c.has_custom_portrait).length;
+
+                const grid = document.getElementById('codex-grid');
+
+                if (data.count === 0) {
+                    grid.innerHTML = '<div class="empty-state"><h2>No Heroes Yet</h2><p>Be the first to create a character and join the codex!</p></div>';
+                    return;
+                }
+
+                grid.innerHTML = data.codex.map(char => `
+                    <div class="codex-card ${char.has_custom_portrait ? 'custom-portrait' : ''}">
+                        <img class="card-portrait" src="${char.portrait_url}" alt="${char.name}"
+                             onerror="this.src='/${char.class}-class.png'">
+                        <div class="card-body">
+                            ${char.has_custom_portrait ? '<div class="custom-badge">Custom Portrait</div>' : ''}
+                            <div class="card-name">${char.name}</div>
+                            <div class="card-meta">
+                                <span class="class-badge">${char.class}</span>
+                                <span class="level-badge">Lv. ${char.level}</span>
+                            </div>
+                            <div class="faction-tag">${char.faction ? char.faction.replace(/_/g, ' ') : 'No Faction'}</div>
+                            <div class="card-stats">
+                                <div class="stat"><span class="stat-label">HP</span><span class="stat-value">${char.max_health}</span></div>
+                                <div class="stat"><span class="stat-label">MP</span><span class="stat-value">${char.max_mana}</span></div>
+                                <div class="stat"><span class="stat-label">ATK</span><span class="stat-value">${char.attack}</span></div>
+                                <div class="stat"><span class="stat-label">DEF</span><span class="stat-value">${char.defense}</span></div>
+                                <div class="stat"><span class="stat-label">Weapon</span><span class="stat-value">${char.weapon}</span></div>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (err) {
+                console.error('Failed to load codex:', err);
+            }
+        }
+
+        loadCodex();
+        setInterval(loadCodex, 30000);
+    </script>
+</body>
+</html>

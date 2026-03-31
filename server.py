@@ -11,7 +11,9 @@ from datetime import datetime, timedelta
 from typing import Optional, List, Dict
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Depends, Header, BackgroundTasks, Query
+import os
+import base64
+from fastapi import FastAPI, HTTPException, Depends, Header, BackgroundTasks, Query, UploadFile, File
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -26,6 +28,10 @@ from leveling import (
 )
 
 db = Database()
+
+# Portraits directory
+PORTRAITS_DIR = os.path.join(os.path.dirname(__file__), "portraits")
+os.makedirs(PORTRAITS_DIR, exist_ok=True)
 
 # Security
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -87,6 +93,9 @@ class DropItemRequest(BaseModel):
 class SpendTalentRequest(BaseModel):
     talent_name: str
 
+class PortraitUploadRequest(BaseModel):
+    image_data: str  # base64 encoded image
+
 class EnemyConfig:
     TYPES = {
         'goblin': {'name': 'Goblin Scout', 'health': 25, 'attack': 8, 'defense': 3, 'xp': 15, 'gold': 5},
@@ -128,6 +137,24 @@ app = FastAPI(
 @app.get("/", include_in_schema=False)
 async def serve_landing():
     return FileResponse("connect.html")
+
+@app.get("/portraits/{filename}", include_in_schema=False)
+async def serve_portrait(filename: str):
+    """Serve portrait images"""
+    if not filename.endswith(('.png', '.jpg', '.jpeg')):
+        raise HTTPException(status_code=404, detail="Not found")
+    filepath = os.path.join(PORTRAITS_DIR, filename)
+    if not os.path.isfile(filepath):
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(filepath)
+
+@app.get("/codex", include_in_schema=False)
+async def serve_codex_page():
+    """Serve the codex web page"""
+    filepath = os.path.join(os.path.dirname(__file__), "codex.html")
+    if not os.path.isfile(filepath):
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(filepath)
 
 @app.get("/{filename}", include_in_schema=False)
 async def serve_static(filename: str):
@@ -1444,6 +1471,92 @@ async def get_my_talents(player_id: str = Depends(get_current_player)):
         "bonuses": bonuses,
         "available_points": max(0, character['level'] - 1 - sum(talents.values()))
     }
+
+
+# ============================================
+# CODEX & PORTRAIT ENDPOINTS
+# ============================================
+
+DEFAULT_PORTRAITS = {
+    'warrior': 'warrior-class.png',
+    'mage': 'mage-class.png',
+    'rogue': 'rogue-class.png',
+    'cleric': 'cleric-class.png'
+}
+
+@app.post("/api/character/portrait")
+async def upload_portrait(
+    request: PortraitUploadRequest,
+    player_id: str = Depends(get_current_player)
+):
+    """Upload a character portrait (base64 encoded PNG/JPG)"""
+    character = db.get_active_character(player_id)
+    if not character:
+        raise HTTPException(status_code=404, detail="No active character")
+
+    try:
+        image_bytes = base64.b64decode(request.image_data)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid base64 image data")
+
+    # Validate it's a reasonable size (max 2MB)
+    if len(image_bytes) > 2 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Image too large (max 2MB)")
+
+    # Save as PNG using character name (sanitized)
+    safe_name = "".join(c for c in character['name'] if c.isalnum() or c in '-_').lower()
+    filename = f"{safe_name}_{player_id[:8]}.png"
+    filepath = os.path.join(PORTRAITS_DIR, filename)
+
+    with open(filepath, 'wb') as f:
+        f.write(image_bytes)
+
+    return {
+        "message": f"Portrait uploaded for {character['name']}",
+        "portrait_url": f"/portraits/{filename}"
+    }
+
+@app.get("/api/codex")
+async def get_codex():
+    """Get all characters for the codex/player gallery"""
+    characters = db.get_all_characters_for_codex()
+    item_db = db.get_item_database()
+
+    codex_entries = []
+    for char in characters:
+        # Check for custom portrait
+        safe_name = "".join(c for c in char['name'] if c.isalnum() or c in '-_').lower()
+        # Find portrait file matching this character
+        portrait_url = None
+        if os.path.isdir(PORTRAITS_DIR):
+            for f in os.listdir(PORTRAITS_DIR):
+                if f.startswith(safe_name):
+                    portrait_url = f"/portraits/{f}"
+                    break
+
+        if not portrait_url:
+            portrait_url = f"/{DEFAULT_PORTRAITS.get(char['class'], 'warrior-class.png')}"
+
+        # Get weapon name
+        weapon_id = char['equipment'].get('weapon')
+        weapon_name = item_db.get(weapon_id, {}).get('name', 'None') if weapon_id else 'None'
+
+        codex_entries.append({
+            "name": char['name'],
+            "class": char['class'],
+            "faction": char['faction'],
+            "level": char['level'],
+            "portrait_url": portrait_url,
+            "max_health": char['max_health'],
+            "max_mana": char['max_mana'],
+            "attack": char['attack'],
+            "defense": char['defense'],
+            "weapon": weapon_name,
+            "created_at": char['created_at'],
+            "has_custom_portrait": portrait_url.startswith("/portraits/")
+        })
+
+    return {"codex": codex_entries, "count": len(codex_entries)}
 
 
 if __name__ == "__main__":

@@ -1167,3 +1167,24 @@ class Database:
                     bonuses[bonus_key] = bonuses.get(bonus_key, 0) + bonus_val * points
 
         return bonuses
+
+    def get_all_characters_for_codex(self) -> List[Dict]:
+        """Get all active characters for the codex display"""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT c.name, c.class, c.faction, c.level, c.experience, c.gold,
+                   c.max_health, c.max_mana, c.attack, c.defense, c.speed,
+                   c.magic_damage, c.healing_power, c.equipment, c.created_at,
+                   p.username
+            FROM characters c
+            JOIN players p ON c.player_id = p.id
+            WHERE c.status = 'active'
+            ORDER BY c.level DESC, c.experience DESC
+        """)
+        rows = cursor.fetchall()
+        characters = []
+        for row in rows:
+            char = dict(row)
+            char['equipment'] = json.loads(char['equipment'])
+            characters.append(char)
+        return characters
