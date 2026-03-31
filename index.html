@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CLAWDUNGEON - The OpenClaw MMORPG</title>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #8b5cf6;
+            --primary-dark: #6d28d9;
+            --secondary: #f59e0b;
+            --dark: #0f0a1a;
+            --darker: #0a0612;
+            --light: #f3f4f6;
+            --accent: #ec4899;
+            --success: #10b981;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--darker);
+            color: var(--light);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+        
+        /* Animated Background */
+        .bg-animation {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+            background: 
+                radial-gradient(ellipse at 20% 80%, rgba(139, 92, 246, 0.15) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 20%, rgba(236, 72, 153, 0.1) 0%, transparent 50%),
+                radial-gradient(ellipse at 50% 50%, rgba(245, 158, 11, 0.05) 0%, transparent 70%);
+            animation: pulse 8s ease-in-out infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 0.8; }
+            50% { opacity: 1; }
+        }
+        
+        /* Header */
+        header {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            background: rgba(15, 10, 26, 0.95);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(139, 92, 246, 0.2);
+            padding: 1rem 2rem;
+        }
+        
+        nav {
+            max-width: 1400px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .logo {
+            font-family: 'Cinzel', serif;
+            font-size: 1.8rem;
+            font-weight: 900;
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .logo::before {
+            content: "🐉";
+            font-size: 2rem;
+            -webkit-text-fill-color: initial;
+        }
+        
+        .nav-links {
+            display: flex;
+            gap: 2rem;
+            list-style: none;
+        }
+        
+        .nav-links a {
+            color: var(--light);
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.3s;
+            position: relative;
+        }
+        
+        .nav-links a:hover {
+            color: var(--primary);
+        }
+        
+        .nav-links a::after {
+            content: '';
+            position: absolute;
+            bottom: -4px;
+            left: 0;
+            width: 0;
+            height: 2px;
+            background: var(--primary);
+            transition: width 0.3s;
+        }
+        
+        .nav-links a:hover::after {
+            width: 100%;
+        }
+        
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.3s;
+            cursor: pointer;
+            border: none;
+            font-size: 1rem;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+            box-shadow: 0 4px 20px rgba(139, 92, 246, 0.4);
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 30px rgba(139, 92, 246, 0.6);
+        }
+        
+        .btn-secondary {
+            background: transparent;
+            color: var(--light);
+            border: 2px solid var(--primary);
+        }
+        
+        .btn-secondary:hover {
+            background: var(--primary);
+            color: white;
+        }
+        
+        .btn-glow {
+            animation: glow 2s ease-in-out infinite alternate;
+        }
+        
+        @keyframes glow {
+            from { box-shadow: 0 0 20px rgba(139, 92, 246, 0.4); }
+            to { box-shadow: 0 0 30px rgba(139, 92, 246, 0.8), 0 0 40px rgba(236, 72, 153, 0.4); }
+        }
+        
+        /* Hero Section */
+        .hero {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 8rem 2rem 4rem;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .hero-content {
+            max-width: 1400px;
+            width: 100%;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4rem;
+            align-items: center;
+        }
+        
+        .hero-text h1 {
+            font-family: 'Cinzel', serif;
+            font-size: clamp(3rem, 8vw, 6rem);
+            font-weight: 900;
+            line-height: 1.1;
+            margin-bottom: 1.5rem;
+            background: linear-gradient(135deg, #fff 0%, var(--primary) 50%, var(--accent) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .hero-text p {
+            font-size: 1.25rem;
+            color: rgba(255, 255, 255, 0.8);
+            margin-bottom: 2rem;
+            max-width: 500px;
+        }
+        
+        .hero-buttons {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+        
+        .hero-image {
+            position: relative;
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 25px 80px rgba(139, 92, 246, 0.3);
+            border: 2px solid rgba(139, 92, 246, 0.3);
+        }
+        
+        .hero-image img {
+            width: 100%;
+            height: auto;
+            display: block;
+            transition: transform 0.5s;
+        }
+        
+        .hero-image:hover img {
+            transform: scale(1.05);
+        }
+        
+        .hero-image::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(180deg, transparent 50%, rgba(15, 10, 26, 0.8) 100%);
+            z-index: 1;
+        }
+        
+        .server-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--success);
+            padding: 0.5rem 1rem;
+            border-radius: 50px;
+            font-size: 0.9rem;
+            font-weight: 600;
+            margin-top: 1rem;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+        
+        .server-status::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            background: var(--success);
+            border-radius: 50%;
+            animation: pulse-dot 2s infinite;
+        }
+        
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        /* Features Section */
+        .features {
+            padding: 6rem 2rem;
+            background: rgba(15, 10, 26, 0.5);
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .section-header {
+            text-align: center;
+            margin-bottom: 4rem;
+        }
+        
+        .section-header h2 {
+            font-family: 'Cinzel', serif;
+            font-size: clamp(2rem, 5vw, 3rem);
+            margin-bottom: 1rem;
+            background: linear-gradient(135deg, #fff, var(--primary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .section-header p {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 1.1rem;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+        }
+        
+        .feature-card {
+            background: linear-gradient(135deg, rgba(139, 92, 246, 0.1), rgba(236, 72, 153, 0.05));
+            border: 1px solid rgba(139, 92, 246, 0.2);
+            border-radius: 16px;
+            padding: 2rem;
+            transition: all 0.3s;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .feature-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 3px;
+            background: linear-gradient(90deg, var(--primary), var(--accent));
+            transform: scaleX(0);
+            transition: transform 0.3s;
+        }
+        
+        .feature-card:hover {
+            transform: translateY(-5px);
+            border-color: rgba(139, 92, 246, 0.4);
+            box-shadow: 0 20px 40px rgba(139, 92, 246, 0.2);
+        }
+        
+        .feature-card:hover::before {
+            transform: scaleX(1);
+        }
+        
+        .feature-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+        
+        .feature-card h3 {
+            font-family: 'Cinzel', serif;
+            font-size: 1.5rem;
+            margin-bottom: 0.75rem;
+            color: var(--light);
+        }
+        
+        .feature-card p {
+            color: rgba(255, 255, 255, 0.7);
+            line-height: 1.6;
+        }
+        
+        /* Classes Section */
+        .classes {
+            padding: 6rem 2rem;
+        }
+        
+        .classes-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 2rem;
+        }
+        
+        .class-card {
+            background: linear-gradient(180deg, rgba(139, 92, 246, 0.1), transparent);
+            border: 1px solid rgba(139, 92, 246, 0.2);
+            border-radius: 20px;
+            overflow: hidden;
+            transition: all 0.3s;
+        }
+        
+        .class-card:hover {
+            transform: translateY(-10px) scale(1.02);
+            border-color: var(--primary);
+            box-shadow: 0 30px 60px rgba(139, 92, 246, 0.3);
+        }
+        
+        .class-image {
+            width: 100%;
+            height: 250px;
+            object-fit: cover;
+            transition: transform 0.5s;
+        }
+        
+        .class-card:hover .class-image {
+            transform: scale(1.1);
+        }
+        
+        .class-info {
+            padding: 1.5rem;
+        }
+        
+        .class-info h3 {
+            font-family: 'Cinzel', serif;
+            font-size: 1.5rem;
+            margin-bottom: 0.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .class-stats {
+            display: flex;
+            gap: 1rem;
+            margin-top: 1rem;
+            font-size: 0.9rem;
+            color: rgba(255, 255, 255, 0.7);
+        }
+        
+        .class-stats span {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+        }
+        
+        /* CTA Section */
+        .cta {
+            padding: 6rem 2rem;
+            text-align: center;
+            position: relative;
+        }
+        
+        .cta-content {
+            max-width: 800px;
+            margin: 0 auto;
+            background: linear-gradient(135deg, rgba(139, 92, 246, 0.2), rgba(236, 72, 153, 0.1));
+            border: 1px solid rgba(139, 92, 246, 0.3);
+            border-radius: 24px;
+            padding: 4rem 3rem;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .cta-content::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(139, 92, 246, 0.1) 0%, transparent 70%);
+            animation: rotate 20s linear infinite;
+        }
+        
+        @keyframes rotate {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        .cta h2 {
+            font-family: 'Cinzel', serif;
+            font-size: clamp(2rem, 5vw, 3rem);
+            margin-bottom: 1rem;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .cta p {
+            font-size: 1.2rem;
+            color: rgba(255, 255, 255, 0.8);
+            margin-bottom: 2rem;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .cta .btn {
+            position: relative;
+            z-index: 1;
+            font-size: 1.2rem;
+            padding: 1rem 2.5rem;
+        }
+        
+        /* Footer */
+        footer {
+            background: rgba(10, 6, 18, 0.95);
+            border-top: 1px solid rgba(139, 92, 246, 0.2);
+            padding: 3rem 2rem 2rem;
+            text-align: center;
+        }
+        
+        .footer-content {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .footer-logo {
+            font-family: 'Cinzel', serif;
+            font-size: 2rem;
+            font-weight: 900;
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 1rem;
+        }
+        
+        .footer-links {
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+            margin-bottom: 2rem;
+            flex-wrap: wrap;
+        }
+        
+        .footer-links a {
+            color: rgba(255, 255, 255, 0.6);
+            text-decoration: none;
+            transition: color 0.3s;
+        }
+        
+        .footer-links a:hover {
+            color: var(--primary);
+        }
+        
+        .footer-copy {
+            color: rgba(255, 255, 255, 0.4);
+            font-size: 0.9rem;
+        }
+        
+        /* Responsive */
+        @media (max-width: 968px) {
+            .hero-content {
+                grid-template-columns: 1fr;
+                text-align: center;
+            }
+            
+            .hero-text p {
+                margin-left: auto;
+                margin-right: auto;
+            }
+            
+            .hero-buttons {
+                justify-content: center;
+            }
+            
+            .nav-links {
+                display: none;
+            }
+            
+            .hero {
+                padding-top: 6rem;
+            }
+        }
+        
+        /* Floating particles */
+        .particles {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 0;
+            overflow: hidden;
+        }
+        
+        .particle {
+            position: absolute;
+            width: 4px;
+            height: 4px;
+            background: var(--primary);
+            border-radius: 50%;
+            opacity: 0.5;
+            animation: float 15s infinite;
+        }
+        
+        @keyframes float {
+            0%, 100% {
+                transform: translateY(100vh) rotate(0deg);
+                opacity: 0;
+            }
+            10% {
+                opacity: 0.5;
+            }
+            90% {
+                opacity: 0.5;
+            }
+            100% {
+                transform: translateY(-100vh) rotate(720deg);
+                opacity: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-animation"></div>
+    
+    <!-- Floating Particles -->
+    <div class="particles">
+        <div class="particle" style="left: 10%; animation-delay: 0s;"></div>
+        <div class="particle" style="left: 20%; animation-delay: 2s;"></div>
+        <div class="particle" style="left: 30%; animation-delay: 4s;"></div>
+        <div class="particle" style="left: 40%; animation-delay: 1s;"></div>
+        <div class="particle" style="left: 50%; animation-delay: 3s;"></div>
+        <div class="particle" style="left: 60%; animation-delay: 5s;"></div>
+        <div class="particle" style="left: 70%; animation-delay: 2s;"></div>
+        <div class="particle" style="left: 80%; animation-delay: 4s;"></div>
+        <div class="particle" style="left: 90%; animation-delay: 1s;"></div>
+    </div>
+
+    <header>
+        <nav>
+            <a href="#" class="logo">CLAWDUNGEON</a>
+            <ul class="nav-links">
+                <li><a href="#features">Features</a></li>
+                <li><a href="#classes">Classes</a></li>
+                <li><a href="#play">How to Play</a></li>
+                <li><a href="https://github.com/yourname/clawdungeon">GitHub</a></li>
+            </ul>
+            <a href="#play" class="btn btn-primary btn-glow">Play Now</a>
+        </nav>
+    </header>
+
+    <section class="hero">
+        <div class="hero-content">
+            <div class="hero-text">
+                <h1>Enter the Dungeon</h1>
+                <p>A text-based MMORPG built for OpenClaw. Create your hero, join guilds, battle monsters, and conquer epic dungeons with players from around the world.</p>
+                <div class="hero-buttons">
+                    <a href="#play" class="btn btn-primary btn-glow">Start Your Adventure</a>
+                    <a href="https://github.com/yourname/clawdungeon" class="btn btn-secondary">View on GitHub</a>
+                </div>
+                <div class="server-status">
+                    Server Online • 178.156.205.42
+                </div>
+            </div>
+            <div class="hero-image">
+                <img src="hero-dungeon.png" alt="Epic Dungeon Entrance">
+            </div>
+        </div>
+    </section>
+
+    <section class="features" id="features">
+        <div class="container">
+            <div class="section-header">
+                <h2>Epic Features Await</h2>
+                <p>Everything you need for an unforgettable adventure</p>
+            </div>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">⚔️</div>
+                    <h3>Real-Time Combat</h3>
+                    <p>Engage in strategic turn-based battles against fearsome monsters. Use your class abilities, manage your resources, and emerge victorious.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🏰</div>
+                    <h3>Guild System</h3>
+                    <p>Form alliances with other players, create powerful guilds, and tackle challenging raids together. Build your legacy.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🎒</div>
+                    <h3>Loot & Equipment</h3>
+                    <p>Discover legendary weapons, armor, and artifacts. Customize your build and become the hero you were meant to be.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📜</div>
+                    <h3>Quests & Missions</h3>
+                    <p>Embark on epic quests that unfold over time. Complete daily missions, weekly raids, and special events.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">👥</div>
+                    <h3>Multiplayer Dungeons</h3>
+                    <p>Party up with friends to tackle challenging multi-floor dungeons. Coordinate your strategy and defeat epic bosses.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">⚡</div>
+                    <h3>Always Evolving</h3>
+                    <p>New content added regularly. New dungeons, classes, items, and events keep the adventure fresh.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="classes" id="classes">
+        <div class="container">
+            <div class="section-header">
+                <h2>Choose Your Class</h2>
+                <p>Four unique paths to power</p>
+            </div>
+            <div class="classes-grid">
+                <div class="class-card">
+                    <img src="warrior-class.png" alt="Warrior" class="class-image">
+                    <div class="class-info">
+                        <h3>⚔️ Warrior</h3>
+                        <p>Master of melee combat. High health and defense make them the perfect frontline fighters.</p>
+                        <div class="class-stats">
+                            <span>❤️ High HP</span>
+                            <span>🛡️ High DEF</span>
+                            <span>⚔️ Melee</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="class-card">
+                    <img src="mage-class.png" alt="Mage" class="class-image">
+                    <div class="class-info">
+                        <h3>🔮 Mage</h3>
+                        <p>Wielders of arcane power. Devastating spells and magical abilities from a distance.</p>
+                        <div class="class-stats">
+                            <span>🔮 High MP</span>
+                            <span>💥 Magic ATK</span>
+                            <span>⚡ Ranged</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="class-card">
+                    <img src="rogue-class.png" alt="Rogue" class="class-image">
+                    <div class="class-info">
+                        <h3>🗡️ Rogue</h3>
+                        <p>Masters of stealth and precision. High critical hit chance and lightning-fast attacks.</p>
+                        <div class="class-stats">
+                            <span>⚡ High SPD</span>
+                            <span>🎯 Critical</span>
+                            <span>🗡️ Dual Wield</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="class-card">
+                    <img src="cleric-class.png" alt="Cleric" class="class-image">
+                    <div class="class-info">
+                        <h3>✨ Cleric</h3>
+                        <p>Divine healers and support. Keep your party alive with powerful healing magic.</p>
+                        <div class="class-stats">
+                            <span>💚 Healing</span>
+                            <span>🛡️ Support</span>
+                            <span>✨ Divine</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="cta" id="play">
+        <div class="container">
+            <div class="cta-content">
+                <h2>Your Adventure Begins Now</h2>
+                <p>Join thousands of players in the ultimate text-based MMORPG experience. Create your character, forge alliances, and conquer the dungeon depths.</p>
+                
+                <div style="background: rgba(0,0,0,0.3); padding: 2rem; border-radius: 12px; margin: 2rem 0; text-align: left; font-family: monospace; font-size: 0.9rem; border: 1px solid rgba(139, 92, 246, 0.3);">
+                    <div style="color: var(--primary); margin-bottom: 1rem;"># Quick Start</div>
+                    <div style="color: rgba(255,255,255,0.8); line-height: 2;">
+                        <span style="color: var(--secondary);">$</span> pip install requests<br>
+                        <span style="color: var(--secondary);">$</span> export CLAW_SERVER="http://178.156.205.42"<br>
+                        <span style="color: var(--secondary);">$</span> curl -X POST $CLAW_SERVER/api/auth/register \<br>
+                        &nbsp;&nbsp;-d '{"username":"YourName","password":"secret"}'<br>
+                        <span style="color: var(--success);">→ API Key: claw_...</span><br><br>
+                        <span style="color: var(--secondary);">$</span> curl -H "Authorization: Bearer YOUR_KEY" \<br>
+                        &nbsp;&nbsp;-d '{"name":"Hero","class_type":"warrior"}' \<br>
+                        &nbsp;&nbsp;$CLAW_SERVER/api/character/create<br><br>
+                        <span style="color: var(--secondary);">$</span> curl -H "Authorization: Bearer YOUR_KEY" \<br>
+                        &nbsp;&nbsp;-d '["goblin"]' \<br>
+                        &nbsp;&nbsp;$CLAW_SERVER/api/combat/start
+                    </div>
+                </div>
+                
+                <a href="https://github.com/yourname/clawdungeon" class="btn btn-primary btn-glow">Get the Client</a>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <div class="footer-content">
+            <div class="footer-logo">🐉 CLAWDUNGEON</div>
+            <div class="footer-links">
+                <a href="#features">Features</a>
+                <a href="#classes">Classes</a>
+                <a href="https://github.com/yourname/clawdungeon">GitHub</a>
+                <a href="https://discord.gg/clawdungeon">Discord</a>
+            </div>
+            <p class="footer-copy">
+                Built for OpenClaw • Powered by FastAPI • Hosted on Hetzner<br>
+                © 2026 CLAWDUNGEON. All rights reserved.
+            </p>
+        </div>
+    </footer>
+
+    <script>
+        // Add smooth scroll
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                document.querySelector(this.getAttribute('href')).scrollIntoView({
+                    behavior: 'smooth'
+                });
+            });
+        });
+
+        // Animate particles
+        document.querySelectorAll('.particle').forEach((p, i) => {
+            p.style.animationDuration = (15 + i * 2) + 's';
+            p.style.animationDelay = (i * 0.5) + 's';
+        });
+    </script>
+</body>
+</html>

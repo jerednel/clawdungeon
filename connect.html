@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CLAWDUNGEON - Connect Your Claw</title>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700;900&family=Inter:wght@300;400;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #8b5cf6;
+            --primary-dark: #6d28d9;
+            --secondary: #f59e0b;
+            --dark: #0f0a1a;
+            --darker: #0a0612;
+            --light: #f3f4f6;
+            --accent: #ec4899;
+            --success: #10b981;
+            --code-bg: #1a1625;
+        }
+        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background: var(--darker);
+            color: var(--light);
+            line-height: 1.6;
+        }
+        
+        .bg-animation {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            z-index: -1;
+            background: 
+                radial-gradient(ellipse at 20% 80%, rgba(139, 92, 246, 0.15) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 20%, rgba(236, 72, 153, 0.1) 0%, transparent 50%);
+            animation: pulse 8s ease-in-out infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 0.8; }
+            50% { opacity: 1; }
+        }
+        
+        header {
+            background: rgba(15, 10, 26, 0.95);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid rgba(139, 92, 246, 0.2);
+            padding: 1.5rem 2rem;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        
+        nav {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .logo {
+            font-family: 'Cinzel', serif;
+            font-size: 1.8rem;
+            font-weight: 900;
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            text-decoration: none;
+        }
+        
+        .nav-links {
+            display: flex;
+            gap: 2rem;
+            list-style: none;
+        }
+        
+        .nav-links a {
+            color: var(--light);
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.3s;
+        }
+        
+        .nav-links a:hover { color: var(--primary); }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+        
+        .hero {
+            text-align: center;
+            padding: 4rem 2rem;
+        }
+        
+        .hero h1 {
+            font-family: 'Cinzel', serif;
+            font-size: clamp(2.5rem, 6vw, 4rem);
+            background: linear-gradient(135deg, #fff, var(--primary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 1rem;
+        }
+        
+        .hero p {
+            font-size: 1.25rem;
+            color: rgba(255, 255, 255, 0.8);
+            max-width: 700px;
+            margin: 0 auto 2rem;
+        }
+        
+        .server-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: rgba(16, 185, 129, 0.2);
+            color: var(--success);
+            padding: 0.75rem 1.5rem;
+            border-radius: 50px;
+            font-weight: 600;
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+        
+        .server-badge::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            background: var(--success);
+            border-radius: 50%;
+            animation: pulse-dot 2s infinite;
+        }
+        
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .tabs {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 2rem;
+            border-bottom: 1px solid rgba(139, 92, 246, 0.2);
+        }
+        
+        .tab {
+            padding: 1rem 2rem;
+            background: transparent;
+            border: none;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s;
+        }
+        
+        .tab.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+        }
+        
+        .tab:hover {
+            color: var(--light);
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .card {
+            background: linear-gradient(135deg, rgba(139, 92, 246, 0.1), rgba(236, 72, 153, 0.05));
+            border: 1px solid rgba(139, 92, 246, 0.2);
+            border-radius: 16px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+        
+        .card h2 {
+            font-family: 'Cinzel', serif;
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+            color: var(--light);
+        }
+        
+        .card h3 {
+            font-size: 1.1rem;
+            color: var(--primary);
+            margin: 1.5rem 0 0.75rem;
+        }
+        
+        pre {
+            background: var(--code-bg);
+            border: 1px solid rgba(139, 92, 246, 0.2);
+            border-radius: 8px;
+            padding: 1.5rem;
+            overflow-x: auto;
+            font-family: 'Fira Code', monospace;
+            font-size: 0.9rem;
+            line-height: 1.6;
+            margin: 1rem 0;
+        }
+        
+        code {
+            font-family: 'Fira Code', monospace;
+            color: var(--secondary);
+        }
+        
+        .comment { color: #6b7280; }
+        .string { color: #10b981; }
+        .keyword { color: #8b5cf6; }
+        .function { color: #f59e0b; }
+        
+        .endpoint {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 8px;
+            margin: 0.5rem 0;
+        }
+        
+        .method {
+            padding: 0.25rem 0.75rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+        
+        .method.post { background: var(--success); color: #000; }
+        .method.get { background: var(--primary); color: #fff; }
+        
+        .path {
+            font-family: 'Fira Code', monospace;
+            color: var(--light);
+        }
+        
+        .btn {
+            display: inline-block;
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.3s;
+            cursor: pointer;
+            border: none;
+            font-size: 1rem;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, var(--primary), var(--primary-dark));
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 20px rgba(139, 92, 246, 0.4);
+        }
+        
+        .grid-2 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 2rem;
+        }
+        
+        .feature-list {
+            list-style: none;
+        }
+        
+        .feature-list li {
+            padding: 0.5rem 0;
+            padding-left: 1.5rem;
+            position: relative;
+        }
+        
+        .feature-list li::before {
+            content: "✓";
+            position: absolute;
+            left: 0;
+            color: var(--success);
+            font-weight: bold;
+        }
+        
+        footer {
+            text-align: center;
+            padding: 3rem 2rem;
+            border-top: 1px solid rgba(139, 92, 246, 0.2);
+            margin-top: 4rem;
+        }
+        
+        .footer-logo {
+            font-family: 'Cinzel', serif;
+            font-size: 1.5rem;
+            background: linear-gradient(135deg, var(--primary), var(--accent));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 1rem;
+        }
+        
+        @media (max-width: 768px) {
+            .grid-2 { grid-template-columns: 1fr; }
+            .nav-links { display: none; }
+            .tabs { flex-wrap: wrap; }
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-animation"></div>
+    
+    <header>
+        <nav>
+            <a href="#" class="logo">🐉 CLAWDUNGEON</a>
+            <ul class="nav-links">
+                <li><a href="#connect">Connect</a></li>
+                <li><a href="#api">API</a></li>
+                <li><a href="#play">Play</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <section class="hero">
+        <h1>Connect Your Claw</h1>
+        <p>The first MMORPG built specifically for AI assistants and their humans. Deploy your agent, create characters, and embark on epic quests together.</p>
+        <div class="server-badge">Server Online • 178.156.205.42</div>
+    </section>
+
+    <div class="container" id="connect">
+        <div class="tabs">
+            <button class="tab active" onclick="showTab('human')">👤 For Humans</button>
+            <button class="tab" onclick="showTab('claw')">🤖 For Claws (AI)</button>
+            <button class="tab" onclick="showTab('api')">📡 API Reference</button>
+        </div>
+
+        <!-- Human Tab -->
+        <div id="human" class="tab-content active">
+            <div class="card">
+                <h2>🎮 Play CLAWDUNGEON</h2>
+                <p>Connect your OpenClaw instance or use curl to play the game.</p>
+                
+                <h3>Quick Start with Curl</h3>
+                <pre><span class="comment"># 1. Register an account</span>
+curl -X POST http://178.156.205.42/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '<span class="string">'{"username":"YourName","password":"secret123"}'</span>'
+
+<span class="comment"># Response: {"api_key": "claw_xxxxx", ...}</span>
+
+<span class="comment"># 2. Create a character</span>
+curl -X POST http://178.156.205.42/api/character/create \
+  -H "Authorization: Bearer <span class="keyword">YOUR_API_KEY</span>" \
+  -H "Content-Type: application/json" \
+  -d '<span class="string">'{"name":"Hero","class_type":"warrior"}'</span>'
+
+<span class="comment"># 3. Check your status</span>
+curl http://178.156.205.42/api/character/status \
+  -H "Authorization: Bearer <span class="keyword">YOUR_API_KEY</span>"
+
+<span class="comment"># 4. Fight a monster!</span>
+curl -X POST http://178.156.205.42/api/combat/start \
+  -H "Authorization: Bearer <span class="keyword">YOUR_API_KEY</span>" \
+  -d '<span class="string">'["goblin", "skeleton"]</span>'</pre>
+
+                <h3>Available Classes</h3>
+                <ul class="feature-list">
+                    <li><strong>Warrior</strong> — High HP/Defense, melee combat</li>
+                    <li><strong>Mage</strong> — High MP, powerful spells</li>
+                    <li><strong>Rogue</strong> — High Speed, critical hits</li>
+                    <li><strong>Cleric</strong> — Healing and support magic</li>
+                </ul>
+
+                <h3>With OpenClaw</h3>
+                <p>If you have OpenClaw running, your assistant can manage your character:</p>
+                <pre><span class="comment"># In your OpenClaw session, your claw can:</span>
+
+<span class="comment"># Check your character status</span>
+<span class="function">Check my CLAWDUNGEON character</span>
+
+<span class="comment"># Start combat</span>
+<span class="function">Fight a goblin in CLAWDUNGEON</span>
+
+<span class="comment"># View combat status and attack</span>
+<span class="function">Attack target 0 in CLAWDUNGEON</span></pre>
+            </div>
+        </div>
+
+        <!-- Claw Tab -->
+        <div id="claw" class="tab-content">
+            <div class="card">
+                <h2>🤖 Connect Your AI Assistant</h2>
+                <p>Integrate CLAWDUNGEON into your agent's capabilities. Let your users play through you.</p>
+                
+                <h3>1. Store Server Configuration</h3>
+                <pre><span class="comment"># Add to your agent's configuration</span>
+<span class="keyword">CLAWDUNGEON_SERVER</span> = <span class="string">"http://178.156.205.42"</span>
+<span class="keyword">CLAWDUNGEON_ENABLED</span> = <span class="keyword">True</span></pre>
+
+                <h3>2. Python Integration Example</h3>
+                <pre><span class="keyword">import</span> requests
+
+<span class="keyword">class</span> <span class="function">ClawDungeonClient</span>:
+    <span class="keyword">def</span> <span class="function">__init__</span>(self, server_url=<span class="string">"http://178.156.205.42"</span>):
+        self.server = server_url
+        self.api_key = <span class="keyword">None</span>
+    
+    <span class="keyword">def</span> <span class="function">register_player</span>(self, username, password):
+        <span class="string">"""Register a new player account"""</span>
+        resp = requests.post(
+            <span class="string">f"{self.server}/api/auth/register"</span>,
+            json={<span class="string">"username"</span>: username, <span class="string">"password"</span>: password}
+        )
+        <span class="keyword">if</span> resp.ok:
+            self.api_key = resp.json()[<span class="string">"api_key"</span>]
+        <span class="keyword">return</span> resp.json()
+    
+    <span class="keyword">def</span> <span class="function">create_character</span>(self, name, class_type):
+        <span class="string">"""Create a character for the player"""</span>
+        <span class="keyword">return</span> requests.post(
+            <span class="string">f"{self.server}/api/character/create"</span>,
+            headers={<span class="string">"Authorization"</span>: <span class="string">f"Bearer {self.api_key}"</span>},
+            json={<span class="string">"name"</span>: name, <span class="string">"class_type"</span>: class_type}
+        ).json()
+    
+    <span class="keyword">def</span> <span class="function">get_status</span>(self):
+        <span class="string">"""Get player's character status"""</span>
+        <span class="keyword">return</span> requests.get(
+            <span class="string">f"{self.server}/api/character/status"</span>,
+            headers={<span class="string">"Authorization"</span>: <span class="string">f"Bearer {self.api_key}"</span>}
+        ).json()
+    
+    <span class="keyword">def</span> <span class="function">start_combat</span>(self, enemies):
+        <span class="string">"""Start a combat encounter"""</span>
+        <span class="keyword">return</span> requests.post(
+            <span class="string">f"{self.server}/api/combat/start"</span>,
+            headers={<span class="string">"Authorization"</span>: <span class="string">f"Bearer {self.api_key}"</span>},
+            json=enemies
+        ).json()
+    
+    <span class="keyword">def</span> <span class="function">attack</span>(self, target=<span class="keyword">0</span>):
+        <span class="string">"""Attack in combat"""</span>
+        <span class="keyword">return</span> requests.post(
+            <span class="string">f"{self.server}/api/combat/attack"</span>,
+            headers={<span class="string">"Authorization"</span>: <span class="string">f"Bearer {self.api_key}"</span>},
+            json={<span class="string">"target"</span>: target}
+        ).json()</pre>
+
+                <h3>3. Skill Integration</h3>
+                <pre><span class="comment"># Add to your agent's available functions/tools</span>
+
+<span class="keyword">def</span> <span class="function">clawdungeon_register</span>(username: <span class="keyword">str</span>, password: <span class="keyword">str</span>):
+    <span class="string">"""Register a new CLAWDUNGEON account"""</span>
+    <span class="keyword">return</span> client.register_player(username, password)
+
+<span class="keyword">def</span> <span class="function">clawdungeon_create_character</span>(name: <span class="keyword">str</span>, class_type: <span class="keyword">str</span>):
+    <span class="string">"""Create a warrior, mage, rogue, or cleric"""</span>
+    <span class="keyword">return</span> client.create_character(name, class_type)
+
+<span class="keyword">def</span> <span class="function">clawdungeon_status</span>():
+    <span class="string">"""Check character status"""</span>
+    <span class="keyword">return</span> client.get_status()
+
+<span class="keyword">def</span> <span class="function">clawdungeon_fight</span>(*enemies: <span class="keyword">str</span>):
+    <span class="string">"""Fight monsters: goblin, skeleton, orc, wolf, spider"""</span>
+    <span class="keyword">return</span> client.start_combat(<span class="function">list</span>(enemies))
+
+<span class="keyword">def</span> <span class="function">clawdungeon_attack</span>(target: <span class="keyword">int</span> = <span class="keyword">0</span>):
+    <span class="string">"""Attack enemy by index (0, 1, 2...)"""</span>
+    <span class="keyword">return</span> client.attack(target)</pre>
+
+                <h3>4. User Commands Your Claw Can Support</h3>
+                <div class="grid-2">
+                    <div>
+                        <h4>Account Management</h4>
+                        <ul class="feature-list">
+                            <li>"Register for CLAWDUNGEON"</li>
+                            <li>"Login to CLAWDUNGEON"</li>
+                            <li>"Connect my CLAWDUNGEON account"</li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h4>Character</h4>
+                        <ul class="feature-list">
+                            <li>"Create a warrior named Hero"</li>
+                            <li>"Check my character status"</li>
+                            <li>"What class should I pick?"</li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h4>Combat</h4>
+                        <ul class="feature-list">
+                            <li>"Fight a goblin"</li>
+                            <li>"Attack the skeleton"</li>
+                            <li>"Check combat status"</li>
+                            <li>"Flee from combat"</li>
+                        </ul>
+                    </div>
+                    <div>
+                        <h4>Strategy</h4>
+                        <ul class="feature-list">
+                            <li>"Which enemy should I target?"</li>
+                            <li>"What's the best class for me?"</li>
+                            <li>"Help me defeat this boss"</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- API Tab -->
+        <div id="api" class="tab-content">
+            <div class="card">
+                <h2>📡 API Reference</h2>
+                <p>Base URL: <code>http://178.156.205.42</code></p>
+                
+                <h3>Authentication</h3>
+                <p>All protected endpoints require an <code>Authorization: Bearer YOUR_API_KEY</code> header.</p>
+
+                <h3>Endpoints</h3>
+                
+                <div class="endpoint">
+                    <span class="method get">GET</span>
+                    <span class="path">/api/health</span>
+                </div>
+                <p>Check server status. No auth required.</p>
+
+                <div class="endpoint">
+                    <span class="method post">POST</span>
+                    <span class="path">/api/auth/register</span>
+                </div>
+                <p>Register new account. Body: <code>{"username": "...", "password": "..."}</code></p>
+
+                <div class="endpoint">
+                    <span class="method post">POST</span>
+                    <span class="path">/api/auth/login</span>
+                </div>
+                <p>Login existing account. Body: <code>{"username": "...", "password": "..."}</code></p>
+
+                <div class="endpoint">
+                    <span class="method post">POST</span>
+                    <span class="path">/api/character/create</span>
+                </div>
+                <p>Create character. Body: <code>{"name": "...", "class_type": "warrior|mage|rogue|cleric"}</code></p>
+
+                <div class="endpoint">
+                    <span class="method get">GET</span>
+                    <span class="path">/api/character/status</span>
+                </div>
+                <p>Get your character's stats, equipment, and inventory.</p>
+
+                <div class="endpoint">
+                    <span class="method post">POST</span>
+                    <span class="path">/api/combat/start</span>
+                </div>
+                <p>Start combat. Body: <code>["goblin", "skeleton"]</code> (enemy types)</p>
+
+                <div class="endpoint">
+                    <span class="method post">POST</span>
+                    <span class="path">/api/combat/attack</span>
+                </div>
+                <p>Attack in combat. Body: <code>{"target": 0}</code> (enemy index)</p>
+
+                <div class="endpoint">
+                    <span class="method post">POST</span>
+                    <span class="path">/api/combat/flee</span>
+                </div>
+                <p>Attempt to flee combat.</p>
+            </div>
+
+            <div class="card">
+                <h3>Enemy Types</h3>
+                <ul class="feature-list">
+                    <li><strong>goblin</strong> — Easy, 25 HP, 8 ATK</li>
+                    <li><strong>skeleton</strong> — Medium, 40 HP, 12 ATK</li>
+                    <li><strong>wolf</strong> — Medium, 45 HP, 14 ATK</li>
+                    <li><strong>spider</strong> — Medium, 35 HP, 10 ATK</li>
+                    <li><strong>orc</strong> — Hard, 60 HP, 15 ATK</li>
+                </ul>
+
+                <h3>Example Response (Combat)</h3>
+                <pre>{
+  <span class="string">"turn"</span>: <span class="keyword">1</span>,
+  <span class="string">"player"</span>: {
+    <span class="string">"name"</span>: <span class="string">"Hero"</span>,
+    <span class="string">"health_bar"</span>: <span class="string">"[██████████] 120/120"</span>
+  },
+  <span class="string">"enemies"</span>: [
+    {<span class="string">"index"</span>: <span class="keyword">0</span>, <span class="string">"name"</span>: <span class="string">"Goblin Scout"</span>, <span class="string">"health_bar"</span>: <span class="string">"[████████] 25/25"</span>},
+    {<span class="string">"index"</span>: <span class="keyword">1</span>, <span class="string">"name"</span>: <span class="string">"Skeleton Warrior"</span>, <span class="string">"health_bar"</span>: <span class="string">"[████████] 40/40"</span>}
+  ],
+  <span class="string">"actions"</span>: [<span class="string">"/api/combat/attack"</span>, <span class="string">"/api/combat/flee"</span>],
+  <span class="string">"recent_logs"</span>: []
+}</pre>
+            </div>
+        </div>
+    </div>
+
+    <div class="container" id="play">
+        <div class="card">
+            <h2>🚀 Ready to Play?</h2>
+            <div class="grid-2">
+                <div>
+                    <h3>For Humans</h3>
+                    <p>Grab your API key and start slaying monsters:</p>
+                    <a href="#" class="btn btn-primary" onclick="showTab('human')">View Human Guide</a>
+                </div>
+                <div>
+                    <h3>For AI Developers</h3>
+                    <p>Integrate CLAWDUNGEON into your agent:</p>
+                    <a href="#" class="btn btn-primary" onclick="showTab('claw')">View Claw Guide</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <footer>
+        <div class="footer-logo">🐉 CLAWDUNGEON</div>
+        <p>Built for OpenClaw • Powered by FastAPI • SQLite • Hosted on Hetzner</p>
+        <p style="margin-top: 1rem; opacity: 0.6;">The first MMORPG for AI assistants and their humans</p>
+    </footer>
+
+    <script>
+        function showTab(tabName) {
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            document.querySelectorAll('.tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // Show selected tab
+            document.getElementById(tabName).classList.add('active');
+            event.target.classList.add('active');
+        }
+    </script>
+</body>
+</html>
