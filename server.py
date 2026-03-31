@@ -82,6 +82,9 @@ class UseItemRequest(BaseModel):
 class DropItemRequest(BaseModel):
     item_id: str
 
+class SpendTalentRequest(BaseModel):
+    talent_name: str
+
 class EnemyConfig:
     TYPES = {
         'goblin': {'name': 'Goblin Scout', 'health': 25, 'attack': 8, 'defense': 3, 'xp': 15, 'gold': 5},
@@ -585,22 +588,57 @@ async def combat_attack(
             attack_power += item.get('attack', 0)
             defense_power += item.get('defense', 0)
     
+    # Apply talent bonuses
+    talent_bonuses = db.get_talent_bonuses(player_id)
+
+    # Damage multiplier from talents (poison_blades, elemental_power)
+    damage_multiplier = 1.0 + talent_bonuses.get('damage_percent', 0) + talent_bonuses.get('magic_damage_percent', 0)
+
+    # Berserker rage - bonus damage when HP < 50%
+    if state['player_health'] < character['max_health'] * 0.5:
+        damage_multiplier += talent_bonuses.get('low_hp_damage_percent', 0)
+
+    # Crit chance from talents
+    crit_chance = character.get('critical_chance', 0.15) + talent_bonuses.get('critical_chance', 0)
+    crit = random.random() < crit_chance
+
+    # Crit damage bonus (backstab)
+    crit_multiplier = 1.5 + talent_bonuses.get('crit_damage_percent', 0)
+
     base_damage = max(1, attack_power - enemy['defense'])
     variance = random.uniform(0.8, 1.2)
-    crit = random.random() < character.get('critical_chance', 0.15)
-    damage = int(base_damage * variance * (1.5 if crit else 1))
-    
+    damage = int(base_damage * variance * damage_multiplier * (crit_multiplier if crit else 1))
+
     enemy['health'] -= damage
-    
+
     log_entry = f"You attack {enemy['name']}! {'CRITICAL HIT! ' if crit else ''}(-{damage} HP)"
     if enemy['health'] <= 0:
         log_entry += f" {enemy['name']} defeated!"
     state['log'].append(log_entry)
-    
+
+    # Cleave / Chain Lightning - hit additional enemy after primary target
+    if talent_bonuses.get('cleave') or talent_bonuses.get('chain_attack'):
+        for i, extra_enemy in enumerate(state['enemies']):
+            if extra_enemy['health'] > 0 and i != request.target:
+                splash_damage = damage // 2
+                extra_enemy['health'] -= splash_damage
+                log_entry_splash = f"{'Cleave' if talent_bonuses.get('cleave') else 'Chain Lightning'} hits {extra_enemy['name']}! (-{splash_damage} HP)"
+                if extra_enemy['health'] <= 0:
+                    log_entry_splash += f" {extra_enemy['name']} defeated!"
+                state['log'].append(log_entry_splash)
+                break  # Only hit one additional target
+
     # Enemy turns
     for e in state['enemies']:
         if e['health'] > 0:
-            enemy_damage = max(1, int((e['attack'] - defense_power) * random.uniform(0.8, 1.2)))
+            # Dodge check (rogue evasion talent)
+            if random.random() < talent_bonuses.get('dodge_chance', 0):
+                state['log'].append(f"You dodged {e['name']}'s attack!")
+                continue
+
+            # Damage reduction (cleric divine protection)
+            reduction = 1.0 - talent_bonuses.get('damage_reduction', 0)
+            enemy_damage = max(1, int((e['attack'] - defense_power) * random.uniform(0.8, 1.2) * reduction))
             state['player_health'] -= enemy_damage
             state['log'].append(f"{e['name']} attacks you! (-{enemy_damage} HP)")
             
@@ -686,7 +724,12 @@ async def combat_flee(player_id: str = Depends(get_current_player)):
     if not state:
         raise HTTPException(status_code=404, detail="No active combat")
     
-    if random.random() < 0.6:
+    talent_bonuses = db.get_talent_bonuses(player_id)
+    flee_chance = 0.6
+    if talent_bonuses.get('vanish'):
+        flee_chance = 1.0
+
+    if random.random() < flee_chance:
         db.clear_combat_state(player_id)
         return {"result": "fled", "message": "You successfully fled!"}
     else:
@@ -1341,6 +1384,48 @@ async def complete_quest(
         }
 
     return response
+
+
+# ============================================
+# TALENT ENDPOINTS
+# ============================================
+
+@app.get("/api/talents/tree")
+async def get_talent_tree(player_id: str = Depends(get_current_player)):
+    """Get your class talent tree with current investments"""
+    tree = db.get_talent_tree(player_id)
+    if not tree:
+        raise HTTPException(status_code=404, detail="No active character")
+    return tree
+
+@app.post("/api/talents/spend")
+async def spend_talent_point(
+    request: SpendTalentRequest,
+    player_id: str = Depends(get_current_player)
+):
+    """Spend a talent point"""
+    success, message = db.spend_talent_point(player_id, request.talent_name)
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+
+    tree = db.get_talent_tree(player_id)
+    return {"message": message, "talent_tree": tree}
+
+@app.get("/api/talents/my")
+async def get_my_talents(player_id: str = Depends(get_current_player)):
+    """Get your current talent allocations and bonuses"""
+    character = db.get_active_character(player_id)
+    if not character:
+        raise HTTPException(status_code=404, detail="No active character")
+
+    talents = db.get_player_talents(player_id)
+    bonuses = db.get_talent_bonuses(player_id)
+
+    return {
+        "talents": talents,
+        "bonuses": bonuses,
+        "available_points": max(0, character['level'] - 1 - sum(talents.values()))
+    }
 
 
 if __name__ == "__main__":
