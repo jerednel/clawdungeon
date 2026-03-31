@@ -72,6 +72,16 @@ class NoticeBoardCreateRequest(BaseModel):
     reward_xp: int = Field(default=0, ge=0)
     reward_item: Optional[str] = None
 
+class EquipRequest(BaseModel):
+    item_id: str
+    slot: str = Field(..., pattern="^(weapon|armor|helmet|boots|accessory)$")
+
+class UseItemRequest(BaseModel):
+    item_id: str
+
+class DropItemRequest(BaseModel):
+    item_id: str
+
 class EnemyConfig:
     TYPES = {
         'goblin': {'name': 'Goblin Scout', 'health': 25, 'attack': 8, 'defense': 3, 'xp': 15, 'gold': 5},
@@ -195,6 +205,8 @@ async def create_character(
     equipment = {
         'weapon': faction_equip.get('weapon'),
         'armor': faction_equip.get('armor'),
+        'helmet': None,
+        'boots': None,
         'accessory': None
     }
     
@@ -217,7 +229,12 @@ async def create_character(
         'magic_damage': magic_damage,
         'healing_power': healing_power,
         'equipment': equipment,
-        'inventory': ['health_potion', 'health_potion'],
+        'inventory': {
+            'warrior': ['health_potion', 'health_potion', 'health_potion'],
+            'mage': ['mana_potion', 'mana_potion', 'mana_potion'],
+            'rogue': ['health_potion', 'poison_potion'],
+            'cleric': ['health_potion', 'health_potion', 'health_potion', 'health_potion', 'health_potion']
+        }.get(request.class_type, ['health_potion', 'health_potion']),
         'guild_id': None,
         'status': 'active',
         'created_at': datetime.now().isoformat()
@@ -271,11 +288,21 @@ async def get_character_status(player_id: str = Depends(get_current_player)):
     
     # Calculate totals with equipment
     item_db = db.get_item_database()
-    weapon = item_db.get(character['equipment'].get('weapon'), {})
-    armor = item_db.get(character['equipment'].get('armor'), {})
-    
-    total_attack = character['attack'] + weapon.get('attack', 0)
-    total_defense = character['defense'] + armor.get('defense', 0)
+    total_attack = character['attack']
+    total_defense = character['defense']
+    total_speed = character['speed']
+
+    equipment_display = {}
+    for slot in ('weapon', 'armor', 'helmet', 'boots', 'accessory'):
+        item_id = character['equipment'].get(slot)
+        if item_id:
+            item = item_db.get(item_id, {})
+            total_attack += item.get('attack', 0)
+            total_defense += item.get('defense', 0)
+            total_speed += item.get('speed', 0)
+            equipment_display[slot] = item.get('name', item_id)
+        else:
+            equipment_display[slot] = 'None'
     
     # Health bar
     health_pct = character['health'] / character['max_health']
@@ -308,7 +335,7 @@ async def get_character_status(player_id: str = Depends(get_current_player)):
             "mana": f"{character['mana']}/{character['max_mana']}",
             "attack": total_attack,
             "defense": total_defense,
-            "speed": character['speed'],
+            "speed": total_speed,
             "critical_chance": f"{character.get('critical_chance', 0.15)*100:.0f}%",
             "magic_damage": character.get('magic_damage', 0),
             "healing_power": character.get('healing_power', 0),
@@ -320,10 +347,7 @@ async def get_character_status(player_id: str = Depends(get_current_player)):
                 "needed": needed_xp,
                 "progress_bar": f"[{xp_bar}] {current_xp}/{needed_xp} ({xp_pct:.1f}%)"
             },
-            "equipment": {
-                "weapon": weapon.get('name', 'None'),
-                "armor": armor.get('name', 'None')
-            },
+            "equipment": equipment_display,
             "inventory": [item_db.get(i, {}).get('name', i) for i in character['inventory']]
         }
     }
@@ -552,8 +576,14 @@ async def combat_attack(
     # Calculate damage with faction critical chance
     character = db.get_active_character(player_id)
     item_db = db.get_item_database()
-    weapon = item_db.get(character['equipment'].get('weapon'), {})
-    attack_power = character['attack'] + weapon.get('attack', 0)
+    attack_power = character['attack']
+    defense_power = character['defense']
+    for slot in ('weapon', 'armor', 'helmet', 'boots', 'accessory'):
+        item_id = character['equipment'].get(slot)
+        if item_id:
+            item = item_db.get(item_id, {})
+            attack_power += item.get('attack', 0)
+            defense_power += item.get('defense', 0)
     
     base_damage = max(1, attack_power - enemy['defense'])
     variance = random.uniform(0.8, 1.2)
@@ -570,9 +600,7 @@ async def combat_attack(
     # Enemy turns
     for e in state['enemies']:
         if e['health'] > 0:
-            armor = item_db.get(character['equipment'].get('armor'), {})
-            defense = character['defense'] + armor.get('defense', 0)
-            enemy_damage = max(1, int((e['attack'] - defense) * random.uniform(0.8, 1.2)))
+            enemy_damage = max(1, int((e['attack'] - defense_power) * random.uniform(0.8, 1.2)))
             state['player_health'] -= enemy_damage
             state['log'].append(f"{e['name']} attacks you! (-{enemy_damage} HP)")
             
@@ -588,8 +616,11 @@ async def combat_attack(
         
         # Rewards
         loot = []
-        if random.random() < 0.3:
-            loot.append(random.choice(['health_potion', 'mana_potion']))
+        for e in state['enemies']:
+            if e['health'] <= 0:
+                drop = db.get_loot_drop(e['type'])
+                if drop:
+                    loot.append(drop)
         
         # Add experience with leveling system
         level_result = add_experience(character, total_xp, source="combat victory")
@@ -956,6 +987,146 @@ async def access_city_storage(
             "gold": character['gold'],
             "inventory_slots": len(character['inventory'])
         }
+    }
+
+
+# ============================================
+# INVENTORY ENDPOINTS
+# ============================================
+
+@app.get("/api/inventory")
+async def get_inventory(player_id: str = Depends(get_current_player)):
+    """Get player's inventory and equipment"""
+    result = db.get_inventory_with_details(player_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="No active character")
+    return result
+
+@app.post("/api/inventory/equip")
+async def equip_item(
+    request: EquipRequest,
+    player_id: str = Depends(get_current_player)
+):
+    """Equip an item from inventory"""
+    character = db.get_active_character(player_id)
+    if not character:
+        raise HTTPException(status_code=404, detail="No active character")
+
+    if request.item_id not in character['inventory']:
+        raise HTTPException(status_code=400, detail="Item not in inventory")
+
+    item_db = db.get_item_database()
+    item = item_db.get(request.item_id)
+    if not item:
+        raise HTTPException(status_code=400, detail="Unknown item")
+
+    if item['type'] not in ('weapon', 'armor'):
+        raise HTTPException(status_code=400, detail="Item cannot be equipped")
+
+    # Determine correct slot
+    if item['type'] == 'weapon':
+        slot = 'weapon'
+    else:
+        slot = item.get('slot', 'armor')
+
+    if slot != request.slot:
+        raise HTTPException(status_code=400, detail=f"Item goes in '{slot}' slot, not '{request.slot}'")
+
+    # Ensure equipment has all slots
+    for s in ('weapon', 'armor', 'helmet', 'boots', 'accessory'):
+        if s not in character['equipment']:
+            character['equipment'][s] = None
+
+    # Unequip current item in that slot (put back in inventory)
+    old_item = character['equipment'].get(slot)
+    if old_item:
+        character['inventory'].append(old_item)
+
+    # Equip new item
+    character['inventory'].remove(request.item_id)
+    character['equipment'][slot] = request.item_id
+
+    db.update_character(player_id, character)
+
+    old_name = item_db.get(old_item, {}).get('name', 'Nothing') if old_item else 'Nothing'
+    return {
+        "message": f"Equipped {item['name']} in {slot} slot",
+        "unequipped": old_name,
+        "equipped": item['name'],
+        "slot": slot
+    }
+
+@app.post("/api/inventory/use")
+async def use_item(
+    request: UseItemRequest,
+    player_id: str = Depends(get_current_player)
+):
+    """Use a consumable item"""
+    character = db.get_active_character(player_id)
+    if not character:
+        raise HTTPException(status_code=404, detail="No active character")
+
+    if request.item_id not in character['inventory']:
+        raise HTTPException(status_code=400, detail="Item not in inventory")
+
+    item_db = db.get_item_database()
+    item = item_db.get(request.item_id)
+    if not item:
+        raise HTTPException(status_code=400, detail="Unknown item")
+
+    if item.get('type') != 'consumable':
+        raise HTTPException(status_code=400, detail="Item is not consumable")
+
+    effect = item.get('effect')
+    amount = item.get('amount', 0)
+    result_msg = ""
+
+    if effect == 'heal':
+        old_hp = character['health']
+        character['health'] = min(character['max_health'], character['health'] + amount)
+        healed = character['health'] - old_hp
+        result_msg = f"Restored {healed} HP ({character['health']}/{character['max_health']})"
+    elif effect == 'restore_mana':
+        old_mp = character['mana']
+        character['mana'] = min(character['max_mana'], character['mana'] + amount)
+        restored = character['mana'] - old_mp
+        result_msg = f"Restored {restored} MP ({character['mana']}/{character['max_mana']})"
+    else:
+        result_msg = f"Used {item['name']}"
+
+    character['inventory'].remove(request.item_id)
+    db.update_character(player_id, character)
+
+    return {
+        "message": result_msg,
+        "item_used": item['name'],
+        "effect": effect,
+        "amount": amount
+    }
+
+@app.post("/api/inventory/drop")
+async def drop_item(
+    request: DropItemRequest,
+    player_id: str = Depends(get_current_player)
+):
+    """Drop an item from inventory"""
+    character = db.get_active_character(player_id)
+    if not character:
+        raise HTTPException(status_code=404, detail="No active character")
+
+    if request.item_id not in character['inventory']:
+        raise HTTPException(status_code=400, detail="Item not in inventory")
+
+    item_db = db.get_item_database()
+    item_name = item_db.get(request.item_id, {}).get('name', request.item_id)
+
+    character['inventory'].remove(request.item_id)
+    db.update_character(player_id, character)
+
+    return {
+        "message": f"Dropped {item_name}",
+        "item_dropped": item_name,
+        "inventory_count": len(character['inventory'])
     }
 
 
