@@ -11,7 +11,8 @@ from datetime import datetime, timedelta
 from typing import Optional, List, Dict
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Depends, Header, BackgroundTasks
+from fastapi import FastAPI, HTTPException, Depends, Header, BackgroundTasks, Query
+from fastapi.responses import FileResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from passlib.context import CryptContext
@@ -122,6 +123,10 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan
 )
+
+@app.get("/", include_in_schema=False)
+async def serve_landing():
+    return FileResponse("connect.html")
 
 # Auth Helpers
 def verify_password(plain_password, hashed_password):
@@ -480,7 +485,7 @@ async def get_faction_stats(player_id: str = Depends(get_current_player)):
 # Combat Endpoints
 @app.post("/api/combat/start")
 async def start_combat(
-    enemies: List[str],
+    enemies: List[str] = Query(...),
     player_id: str = Depends(get_current_player)
 ):
     """Start a combat encounter"""
