@@ -629,6 +629,26 @@ async def combat_attack(
         
         # Save character (now includes any level-up changes)
         db.update_character(player_id, character)
+
+        # Update kill quest progress
+        active_quests = db.get_player_active_quests(player_id)
+        for quest in active_quests:
+            if quest['type'] == 'kill':
+                reqs = quest['requirements']
+                progress = quest['progress']
+                if 'enemy_type' in reqs:
+                    killed_count = sum(
+                        1 for e in state['enemies']
+                        if e['health'] <= 0 and e['type'] == reqs['enemy_type']
+                    )
+                    if killed_count > 0:
+                        progress['kills'] = progress.get('kills', 0) + killed_count
+                        db.update_quest_progress(player_id, quest['quest_id'], progress)
+                elif 'total_kills' in reqs:
+                    total_killed = sum(1 for e in state['enemies'] if e['health'] <= 0)
+                    progress['kills'] = progress.get('kills', 0) + total_killed
+                    db.update_quest_progress(player_id, quest['quest_id'], progress)
+
         db.clear_combat_state(player_id)
         
         response = {
@@ -1128,6 +1148,199 @@ async def drop_item(
         "item_dropped": item_name,
         "inventory_count": len(character['inventory'])
     }
+
+
+# ============================================
+# QUEST ENDPOINTS
+# ============================================
+
+@app.get("/api/quests/available")
+async def get_available_quests(player_id: str = Depends(get_current_player)):
+    """Get quests available to the player"""
+    character = db.get_active_character(player_id)
+    if not character:
+        raise HTTPException(status_code=404, detail="No active character")
+
+    all_quests = db.get_all_quests()
+    available = []
+
+    for quest in all_quests:
+        is_available, reason = db.check_quest_available(player_id, quest, character)
+        if is_available:
+            available.append({
+                "id": quest['id'],
+                "title": quest['title'],
+                "description": quest['description'],
+                "type": quest['type'],
+                "requirements": quest['requirements'],
+                "rewards": quest['rewards'],
+                "giver": quest['giver'],
+                "location": quest['location'],
+                "chain": quest['chain']
+            })
+
+    return {"available_quests": available, "count": len(available)}
+
+@app.post("/api/quests/accept/{quest_id}")
+async def accept_quest(
+    quest_id: str,
+    player_id: str = Depends(get_current_player)
+):
+    """Accept a quest"""
+    character = db.get_active_character(player_id)
+    if not character:
+        raise HTTPException(status_code=404, detail="No active character")
+
+    quest = db.get_quest(quest_id)
+    if not quest:
+        raise HTTPException(status_code=404, detail="Quest not found")
+
+    is_available, reason = db.check_quest_available(player_id, quest, character)
+    if not is_available:
+        raise HTTPException(status_code=400, detail=reason)
+
+    success = db.accept_quest(player_id, quest_id)
+    if not success:
+        raise HTTPException(status_code=400, detail="Could not accept quest")
+
+    return {
+        "message": f"Quest accepted: {quest['title']}",
+        "quest": {
+            "id": quest['id'],
+            "title": quest['title'],
+            "description": quest['description'],
+            "type": quest['type'],
+            "requirements": quest['requirements'],
+            "rewards": quest['rewards'],
+            "giver": quest['giver']
+        }
+    }
+
+@app.get("/api/quests/active")
+async def get_active_quests(player_id: str = Depends(get_current_player)):
+    """Get player's active quests with progress"""
+    active = db.get_player_active_quests(player_id)
+
+    return {
+        "active_quests": [
+            {
+                "quest_id": q['quest_id'],
+                "title": q['title'],
+                "description": q['description'],
+                "type": q['type'],
+                "requirements": q['requirements'],
+                "progress": q['progress'],
+                "rewards": q['rewards'],
+                "giver": q['giver'],
+                "accepted_at": q['accepted_at']
+            }
+            for q in active
+        ],
+        "count": len(active)
+    }
+
+@app.post("/api/quests/complete/{quest_id}")
+async def complete_quest(
+    quest_id: str,
+    player_id: str = Depends(get_current_player)
+):
+    """Complete a quest and claim rewards"""
+    character = db.get_active_character(player_id)
+    if not character:
+        raise HTTPException(status_code=404, detail="No active character")
+
+    quest = db.get_quest(quest_id)
+    if not quest:
+        raise HTTPException(status_code=404, detail="Quest not found")
+
+    # Check quest is active for player
+    active_quests = db.get_player_active_quests(player_id)
+    player_quest = None
+    for q in active_quests:
+        if q['quest_id'] == quest_id:
+            player_quest = q
+            break
+
+    if not player_quest:
+        raise HTTPException(status_code=400, detail="Quest is not active")
+
+    # Validate completion based on quest type
+    requirements = quest['requirements']
+    progress = player_quest['progress']
+
+    if quest['type'] == 'kill':
+        needed = requirements.get('count', 1)
+        current = progress.get('kills', 0)
+        if current < needed:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Kill requirement not met: {current}/{needed}"
+            )
+
+    elif quest['type'] == 'delivery':
+        required_items = requirements.get('items', {})
+        for item_id, count in required_items.items():
+            have = character['inventory'].count(item_id)
+            if have < count:
+                item_db = db.get_item_database()
+                item_name = item_db.get(item_id, {}).get('name', item_id)
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Need {count} {item_name}, have {have}"
+                )
+        # Remove delivered items
+        for item_id, count in required_items.items():
+            for _ in range(count):
+                character['inventory'].remove(item_id)
+
+    elif quest['type'] == 'boss':
+        if progress.get('kills', 0) < 1:
+            raise HTTPException(status_code=400, detail="Boss not yet defeated")
+
+    # Grant rewards
+    rewards = quest['rewards']
+    reward_summary = []
+
+    if rewards.get('xp', 0) > 0:
+        level_result = add_experience(character, rewards['xp'], source=f"quest: {quest['title']}")
+        reward_summary.append(f"+{rewards['xp']} XP")
+
+    if rewards.get('gold', 0) > 0:
+        character['gold'] += rewards['gold']
+        reward_summary.append(f"+{rewards['gold']} gold")
+
+    if rewards.get('items'):
+        for item_id in rewards['items']:
+            if len(character['inventory']) < 20:
+                character['inventory'].append(item_id)
+                item_db = db.get_item_database()
+                item_name = item_db.get(item_id, {}).get('name', item_id)
+                reward_summary.append(f"+{item_name}")
+
+    # Grant reputation
+    if rewards.get('reputation'):
+        for faction, amount in rewards['reputation'].items():
+            db.modify_reputation(player_id, faction, amount)
+            reward_summary.append(f"+{amount} {faction} reputation")
+
+    # Mark quest complete and save character
+    db.complete_quest(player_id, quest_id)
+    db.update_character(player_id, character)
+
+    response = {
+        "message": f"Quest completed: {quest['title']}!",
+        "rewards": reward_summary,
+        "quest": quest['title']
+    }
+
+    if rewards.get('xp', 0) > 0 and level_result.leveled_up:
+        response["level_up"] = {
+            "new_level": level_result.new_level,
+            "stat_increases": level_result.stat_increases,
+            "messages": level_result.messages
+        }
+
+    return response
 
 
 if __name__ == "__main__":
