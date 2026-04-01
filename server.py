@@ -871,6 +871,21 @@ async def combat_attack(
                     progress['kills'] = progress.get('kills', 0) + total_killed
                     db.update_quest_progress(player_id, quest['quest_id'], progress)
 
+        # Check for lore discoveries
+        discovered_lore = []
+        for enemy in state['enemies']:
+            if enemy['health'] <= 0 and enemy['type'] == 'goblin':
+                result = db.check_and_trigger_lore_discovery(player_id, 'first_goblin_kill')
+                if result:
+                    discovered_lore.extend(result)
+                break  # Only trigger once per combat
+        
+        # Check for level-based lore discoveries
+        if level_result.leveled_up and level_result.new_level >= 5:
+            result = db.check_and_trigger_lore_discovery(player_id, 'reach_level_5')
+            if result:
+                discovered_lore.extend(result)
+
         db.clear_combat_state(player_id)
         
         response = {
@@ -882,6 +897,10 @@ async def combat_attack(
             },
             "log": state['log']
         }
+        
+        # Add discovered lore if any
+        if discovered_lore:
+            response["discovered_lore"] = discovered_lore
         
         # Add level-up info if leveled up
         if level_result.leveled_up:
@@ -973,13 +992,28 @@ async def enter_city(
     db.set_player_location(player_id, city_id)
     exploration_updates = db.update_exploration_quest_progress(player_id, city_id, city)
     
+    # Check for faction lore discovery based on city
+    discovered_lore = []
+    city_lore_triggers = {
+        'ironhold': 'visit_ironhold',
+        'starweavers_spire': 'visit_starweavers_spire', 
+        'shadowmere': 'visit_shadowmere',
+        'sanctum_of_light': 'visit_sanctum'
+    }
+    
+    if city_id in city_lore_triggers:
+        trigger = city_lore_triggers[city_id]
+        result = db.check_and_trigger_lore_discovery(player_id, trigger)
+        if result:
+            discovered_lore.extend(result)
+    
     # Get recent chat messages
     recent_chat = db.get_city_chat(city_id, limit=20)
     
     # Get notice board
     notices = db.get_notice_board(city_id)
     
-    return {
+    response = {
         "message": f"Welcome to {city['name']}!",
         "city": {
             "id": city['id'],
@@ -1012,6 +1046,11 @@ async def enter_city(
         "system_message": f"{character['name']} has entered {city['name']}.",
         "quest_updates": exploration_updates
     }
+    
+    if discovered_lore:
+        response["discovered_lore"] = discovered_lore
+    
+    return response
 
 @app.post("/api/city/leave")
 async def leave_city(player_id: str = Depends(get_current_player)):
@@ -1662,6 +1701,51 @@ async def upload_portrait(
     }
 
 
+
+
+@app.get("/api/lore")
+async def get_lore_list(player_id: str = Depends(get_current_player)):
+    """Get all lore entries with discovery status for current player."""
+    all_entries = db.get_lore_entries(player_id)
+    
+    result = []
+    discovered_count = 0
+    for entry in all_entries:
+        if entry.get('discovered'):
+            discovered_count += 1
+        result.append({
+            "id": entry['id'],
+            "title": entry['title'],
+            "category": entry['category'],
+            "discovered": entry.get('discovered', False),
+            "preview": entry.get('content', '')[:100] + "..." if entry.get('discovered') else "???"
+        })
+    
+    return {"lore_entries": result, "total": len(result), "discovered": discovered_count}
+
+@app.get("/api/lore/{lore_id}")
+async def get_lore_detail(lore_id: str, player_id: str = Depends(get_current_player)):
+    """Get detailed lore entry. Marks as discovered if not already."""
+    entry = db.get_lore_entry(lore_id, player_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Lore entry not found")
+    
+    return {
+        "entry": {
+            "id": entry['id'],
+            "title": entry['title'],
+            "category": entry['category'],
+            "content": entry['content']
+        },
+        "tip": "Discover more by exploring the world, fighting enemies, and completing quests!"
+    }
+
+@app.get("/api/lore/discovered")
+async def get_discovered_lore(player_id: str = Depends(get_current_player)):
+    """Get only discovered lore entries for current player."""
+    all_entries = db.get_lore_entries(player_id)
+    discovered = [e for e in all_entries if e.get('discovered')]
+    return {"discovered_lore": discovered, "count": len(discovered)}
 
 @app.get("/api/leaderboard")
 async def get_global_leaderboard(limit: int = 10):
@@ -2655,6 +2739,51 @@ async def serve_item_image(filename: str):
     if not os.path.isfile(filepath):
         raise HTTPException(status_code=404, detail="Item image not found")
     return FileResponse(filepath)
+
+# -------------------------------------------------------------------------
+# Lore System Endpoints
+# -------------------------------------------------------------------------
+
+@app.get("/api/lore")
+async def get_lore_entries(player_id: str = Depends(get_current_player)):
+    """Get all lore entries with discovery status for the current player"""
+    entries = db.get_lore_entries(player_id)
+    discovered_count = sum(1 for e in entries if e['discovered'])
+    
+    # Group by category
+    categories = {}
+    for entry in entries:
+        cat = entry['category']
+        if cat not in categories:
+            categories[cat] = []
+        categories[cat].append(entry)
+    
+    return {
+        "entries": entries,
+        "by_category": categories,
+        "stats": {
+            "total": len(entries),
+            "discovered": discovered_count,
+            "locked": len(entries) - discovered_count
+        }
+    }
+
+@app.get("/api/lore/{lore_id}")
+async def get_lore_entry(lore_id: str, player_id: str = Depends(get_current_player)):
+    """Get a specific lore entry and mark it as discovered"""
+    entry = db.get_lore_entry(lore_id, player_id)
+    if not entry:
+        raise HTTPException(status_code=404, detail="Lore entry not found")
+    return entry
+
+@app.get("/api/lore/discovered")
+async def get_my_discovered_lore(player_id: str = Depends(get_current_player)):
+    """Get all lore entries discovered by the current player"""
+    entries = db.get_player_discovered_lore(player_id)
+    return {
+        "entries": entries,
+        "count": len(entries)
+    }
 
 
 if __name__ == "__main__":

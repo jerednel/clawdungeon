@@ -385,8 +385,35 @@ class Database:
             )
         """)
 
+        # Lore entries table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS lore_entries (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                category TEXT NOT NULL,
+                content TEXT NOT NULL,
+                unlock_trigger TEXT,
+                faction_id TEXT,
+                sort_order INTEGER DEFAULT 0
+            )
+        """)
+
+        # Player discovered lore table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS player_discovered_lore (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                player_id TEXT NOT NULL,
+                lore_id TEXT NOT NULL,
+                discovered_at TEXT NOT NULL,
+                FOREIGN KEY (player_id) REFERENCES players (id),
+                FOREIGN KEY (lore_id) REFERENCES lore_entries (id),
+                UNIQUE(player_id, lore_id)
+            )
+        """)
+
         self.conn.commit()
         self._init_quests()
+        self._init_lore_entries()
 
     def close(self):
         if self.conn:
@@ -697,6 +724,45 @@ class Database:
             "total_combats": total_combats,
             "server_uptime": "unknown"  # Would need to track this separately
         }
+
+
+    # Lore system methods
+    def get_lore_entries(self) -> List[Dict]:
+        """Get all lore entries"""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM lore_entries ORDER BY category, title")
+        rows = cursor.fetchall()
+        return [dict(r) for r in rows]
+    
+    def get_lore_entry(self, lore_id: str) -> Optional[Dict]:
+        """Get a specific lore entry"""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM lore_entries WHERE id = ?", (lore_id,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+    
+    def discover_lore_entry(self, player_id: str, lore_id: str) -> bool:
+        """Mark a lore entry as discovered by a player"""
+        cursor = self.conn.cursor()
+        try:
+            cursor.execute("INSERT OR IGNORE INTO player_discovered_lore (player_id, lore_id) VALUES (?, ?)", (player_id, lore_id))
+            self.conn.commit()
+            return cursor.rowcount > 0
+        except:
+            return False
+    
+    def get_player_discovered_lore(self, player_id: str) -> List[Dict]:
+        """Get all lore entries discovered by a player"""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT le.*, pdl.discovered_at FROM lore_entries le JOIN player_discovered_lore pdl ON le.id = pdl.lore_id WHERE pdl.player_id = ? ORDER BY pdl.discovered_at DESC", (player_id,))
+        rows = cursor.fetchall()
+        return [dict(r) for r in rows]
+    
+    def check_lore_unlock(self, player_id: str, unlock_type: str, unlock_condition: str) -> List[str]:
+        """Check if player should unlock any lore entries"""
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT le.id FROM lore_entries le WHERE le.unlock_type = ? AND le.unlock_condition = ? AND le.id NOT IN (SELECT lore_id FROM player_discovered_lore WHERE player_id = ?)", (unlock_type, unlock_condition, player_id))
+        return [r['id'] for r in cursor.fetchall()]
 
     def get_cities(self) -> Dict:
         """Get all city definitions"""
@@ -1743,3 +1809,411 @@ class Database:
             VALUES (?, ?, ?, ?)
         """, (player_id, 1 if enabled else 0, target_preference, datetime.now().isoformat()))
         self.conn.commit()
+
+    # -------------------------------------------------------------------------
+    # Lore System Methods
+    # -------------------------------------------------------------------------
+
+    def _init_lore_entries(self):
+        """Initialize default lore entries if they don't exist"""
+        cursor = self.conn.cursor()
+        
+        # Check if lore entries already exist
+        cursor.execute("SELECT COUNT(*) FROM lore_entries")
+        if cursor.fetchone()[0] > 0:
+            return
+        
+        lore_entries = [
+            # World Origin
+            ("shattering", "The Shattering", "world_origin", 
+             "In ages past, the world was whole. The First Kingdoms spanned continents united under the rule of the Ancients - beings of immense power who shaped the land with thought alone. But greed and ambition led to the Great War, a conflict that tore the fabric of reality itself. The Shattering split the world into fragments, creating the dungeons that now dot our lands - pockets of twisted reality where the old world's magic still bleeds through. From this chaos, the four great factions emerged, each vowing to prevent such catastrophe again.",
+             None, None, 1),
+            
+            # Faction Lore - Iron Vanguard
+            ("iron_vanguard_rise", "Rise of the Iron Vanguard", "factions",
+             "When the Shattering scattered the armies of the old world, it was General Kael Ironheart who rallied the surviving warriors. In the ashes of the fallen capital, he forged a new oath: 'Strength through unity, protection through sacrifice.' The Iron Vanguard was born from the shield walls that protected refugees during the Dark Years. Their fortress-city of Ironhold stands as a testament to mortal resilience - built not by magic, but by sweat, blood, and unbreakable will.",
+             "visit_ironhold", "iron_vanguard", 2),
+            
+            # Faction Lore - Arcane Council
+            ("arcane_academy", "The Arcane Academy", "factions",
+             "The Shattering released wild magic into the world, untamed and dangerous. The survivors of the Collegium Arcanum, led by Archmage Seraphina Starweaver, dedicated themselves to understanding and controlling these energies. They built Starweaver's Spire, a magical tower that drifts between dimensions, to study the dungeons without risking the mainland. The Arcane Council believes that knowledge, not steel, will ultimately heal the world and prevent another Shattering.",
+             "visit_starweavers_spire", "arcane_council", 3),
+            
+            # Faction Lore - Shadow Syndicate
+            ("shadowmeres_secret", "Shadowmere's Secret", "factions",
+             "Not all who survived the Shattering wanted to rebuild in the light. The Shadow Syndicate traces its origins to the thieves, spies, and information brokers who kept the old nobility in power. When the world broke, they saw opportunity. Master Shadowmere, a figure of legend, carved out a sanctuary beneath the ruins where secrets became currency and shadows became allies. The Syndicate knows that information is power, and in a broken world, the shadows often reveal truths that daylight hides.",
+             "visit_shadowmere", "shadow_syndicate", 4),
+            
+            # Faction Lore - Eternal Order
+            ("eternal_order", "The Eternal Order", "factions",
+             "In the chaos following the Shattering, many turned to the divine for answers. The Eternal Order emerged from the scattered priesthoods who discovered that faith itself had power in this new world. The High Oracle, whose true name is known only to the inner circle, founded the Sanctum of Light as a beacon of hope. The Order teaches that the Shattering was a test, and that those who heal the world will be granted ascension when the fragments are made whole again.",
+             "visit_sanctum", "eternal_order", 5),
+            
+            # History - Goblin Wars
+            ("goblin_wars", "The Goblin Wars", "history",
+             "Fifteen years after the Shattering, the first organized threat to the surviving settlements emerged. Goblin tribes, mutated by wild magic, united under the warlord Griknak the Cleaver. The Goblin Wars raged for three brutal years, with the four factions fighting together for the last time. It was during these battles that the first adventurers emerged - individuals who delved into the dungeons, gained power, and returned to defend their people. The wars ended with Griknak's defeat, but goblins remain a constant threat, their numbers endlessly replenished by the dungeons' dark magic.",
+             "first_goblin_kill", None, 6),
+            
+            # Legends - Ignis
+            ("ignis_ancient", "Ignis the Ancient", "legends",
+             "Deep within the Infernal Caverns slumbers Ignis, a dragon old enough to remember the world before the Shattering. Some say he caused it; others claim he tried to prevent it. What is known is that Ignis possesses knowledge of the old world that could change everything - if one could survive conversing with a being of pure flame and ancient rage. Many adventurers have sought him. Few have returned, and those who did spoke only of eyes like molten gold and a voice that burns in the mind long after the conversation ends.",
+             "reach_level_10", None, 7),
+            
+            # History - Malgrath's Fall
+            ("malgrath_fall", "Malgrath's Fall", "history",
+             "Malgrath the Corrupted was once the greatest hero of the post-Shattering age. He delved deeper into the dungeons than any before, claiming treasures and power that made him nearly invincible. But the dungeons exact their price. Slowly, Malgrath changed. His eyes turned black as void, and his touch withered life itself. The four factions united one last time to confront him in the Depths of Despair. The battle shattered a mountain. Malgrath was sealed away, but not destroyed. The warning is clear: even the greatest heroes can fall to the dungeon's corruption.",
+             "complete_depths_despair", None, 8),
+            
+            # Heroes Codex
+            ("codex_heroes", "The Codex of Heroes", "heroes",
+             "The Codex of Heroes records the deeds of legendary adventurers who have shaped our world. From the first dungeon delver to the faction champions who maintain the peace, their stories inspire new generations to take up arms against the darkness. The Codex is magically bound - as you grow in power and experience, new entries will reveal themselves. Those who reach level 5 are considered true adventurers, worthy of having their own deeds recorded for future generations.",
+             "reach_level_5", None, 9),
+            
+            # World Beneath
+            ("world_beneath", "The World Beneath", "mysteries",
+             "The dungeons are not random. Scholars of the Arcane Council have mapped their patterns and discovered they form a network - a vast labyrinth beneath our feet, connecting places that should be thousands of miles apart. Some theorize that the dungeons are the veins of a vast, sleeping entity, and that delving into them slowly awakens something ancient and terrible. The Shadow Syndicate claims to have maps showing the way to the center, where the truth of the Shattering supposedly waits. But no one who has ventured that deep has ever returned.",
+             "discover_10_lore_entries", None, 10),
+        ]
+        
+        cursor.executemany("""
+            INSERT INTO lore_entries (id, title, category, content, unlock_trigger, faction_id, sort_order)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, lore_entries)
+        
+        self.conn.commit()
+
+    def get_lore_entries(self, player_id: str = None) -> List[Dict]:
+        """Get all lore entries with discovery status for a player"""
+        cursor = self.conn.cursor()
+        
+        cursor.execute("""
+            SELECT id, title, category, unlock_trigger, faction_id, sort_order
+            FROM lore_entries
+            ORDER BY sort_order
+        """)
+        rows = cursor.fetchall()  # Save rows before next query
+        
+        entries = []
+        discovered_ids = set()
+        
+        if player_id:
+            cursor.execute("SELECT lore_id FROM player_discovered_lore WHERE player_id = ?", (player_id,))
+            discovered_ids = {row[0] for row in cursor.fetchall()}
+        
+        for row in rows:  # Use saved rows
+            entries.append({
+                'id': row[0],
+                'title': row[1],
+                'category': row[2],
+                'discovered': row[0] in discovered_ids,
+                'locked': row[0] not in discovered_ids,
+                'faction_id': row[4]
+            })
+        
+        return entries
+
+    def get_lore_entry(self, lore_id: str, player_id: str = None) -> Optional[Dict]:
+        """Get a specific lore entry and mark as discovered if player provided"""
+        cursor = self.conn.cursor()
+        
+        cursor.execute("""
+            SELECT id, title, category, content, unlock_trigger, faction_id
+            FROM lore_entries
+            WHERE id = ?
+        """, (lore_id,))
+        row = cursor.fetchone()
+        
+        if not row:
+            return None
+        
+        # Check if discovered
+        discovered = False
+        if player_id:
+            cursor.execute("""
+                SELECT 1 FROM player_discovered_lore 
+                WHERE player_id = ? AND lore_id = ?
+            """, (player_id, lore_id))
+            discovered = cursor.fetchone() is not None
+            
+            # Mark as discovered if not already
+            if not discovered:
+                self.discover_lore_entry(player_id, lore_id)
+                discovered = True
+        
+        return {
+            'id': row[0],
+            'title': row[1],
+            'category': row[2],
+            'content': row[3],
+            'discovered': discovered,
+            'faction_id': row[5]
+        }
+
+    def discover_lore_entry(self, player_id: str, lore_id: str) -> bool:
+        """Mark a lore entry as discovered for a player"""
+        cursor = self.conn.cursor()
+        
+        # Check if already discovered
+        cursor.execute("""
+            SELECT 1 FROM player_discovered_lore 
+            WHERE player_id = ? AND lore_id = ?
+        """, (player_id, lore_id))
+        
+        if cursor.fetchone():
+            return False
+        
+        # Check if lore entry exists
+        cursor.execute("SELECT 1 FROM lore_entries WHERE id = ?", (lore_id,))
+        if not cursor.fetchone():
+            return False
+        
+        cursor.execute("""
+            INSERT INTO player_discovered_lore (player_id, lore_id, discovered_at)
+            VALUES (?, ?, ?)
+        """, (player_id, lore_id, datetime.now().isoformat()))
+        
+        self.conn.commit()
+        return True
+
+    def get_player_discovered_lore(self, player_id: str) -> List[Dict]:
+        """Get all lore entries discovered by a player"""
+        cursor = self.conn.cursor()
+        
+        cursor.execute("""
+            SELECT le.id, le.title, le.category, le.content, le.faction_id, pdl.discovered_at
+            FROM lore_entries le
+            JOIN player_discovered_lore pdl ON le.id = pdl.lore_id
+            WHERE pdl.player_id = ?
+            ORDER BY pdl.discovered_at DESC
+        """, (player_id,))
+        
+        return [
+            {
+                'id': row[0],
+                'title': row[1],
+                'category': row[2],
+                'content': row[3],
+                'faction_id': row[4],
+                'discovered_at': row[5]
+            }
+            for row in cursor.fetchall()
+        ]
+
+    def check_and_trigger_lore_discovery(self, player_id: str, trigger_type: str, trigger_value: str = None) -> List[str]:
+        """Check for lore unlocks based on triggers and auto-discover them"""
+        cursor = self.conn.cursor()
+        discovered = []
+        
+        # Build trigger query
+        if trigger_value:
+            cursor.execute("""
+                SELECT id FROM lore_entries 
+                WHERE unlock_trigger = ?
+            """, (f"{trigger_type}:{trigger_value}",))
+        else:
+            cursor.execute("""
+                SELECT id FROM lore_entries 
+                WHERE unlock_trigger = ?
+            """, (trigger_type,))
+        
+        for row in cursor.fetchall():
+            lore_id = row[0]
+            if self.discover_lore_entry(player_id, lore_id):
+                discovered.append(lore_id)
+        
+        return discovered
+
+    # =========================================================================
+    # Submolt (Reddit-like Posts/Comments) Methods
+    # =========================================================================
+
+    def create_submolt_post(self, post_id: str, submolt: str, title: str, content: str,
+                           author_id: str, author_name: str, post_type: str = "feature") -> bool:
+        """Create a new submolt post"""
+        cursor = self.conn.cursor()
+        now = datetime.now().isoformat()
+        try:
+            cursor.execute("""
+                INSERT INTO submolt_posts (id, submolt, title, content, author_id, author_name,
+                                          post_type, status, upvotes, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 'open', 0, ?, ?)
+            """, (post_id, submolt, title, content, author_id, author_name, post_type, now, now))
+            self.conn.commit()
+            return True
+        except Exception as e:
+            print(f"Error creating post: {e}")
+            return False
+
+    def get_submolt_posts(self, submolt: str = "clawdungeon", sort: str = "new",
+                         status: str = None, post_type: str = None, limit: int = 50) -> List[Dict]:
+        """Get posts from a submolt"""
+        cursor = self.conn.cursor()
+        
+        # Build query based on sort
+        order_by = "created_at DESC" if sort == "new" else "upvotes DESC, created_at DESC"
+        
+        conditions = ["submolt = ?"]
+        params = [submolt]
+        
+        if status:
+            conditions.append("status = ?")
+            params.append(status)
+        if post_type:
+            conditions.append("post_type = ?")
+            params.append(post_type)
+        
+        where_clause = " AND ".join(conditions)
+        params.append(limit)
+        
+        cursor.execute(f"""
+            SELECT id, title, content, author_id, author_name, post_type, status,
+                   upvotes, created_at, updated_at, implemented_at, implementation_commit
+            FROM submolt_posts
+            WHERE {where_clause}
+            ORDER BY {order_by}
+            LIMIT ?
+        """, params)
+        
+        posts = []
+        for row in cursor.fetchall():
+            posts.append({
+                'id': row[0],
+                'title': row[1],
+                'content': row[2],
+                'author_id': row[3],
+                'author_name': row[4],
+                'type': row[5],
+                'status': row[6],
+                'upvotes': row[7],
+                'created_at': row[8],
+                'updated_at': row[9],
+                'implemented_at': row[10],
+                'implementation_commit': row[11]
+            })
+        return posts
+
+    def get_submolt_post(self, post_id: str) -> Optional[Dict]:
+        """Get a single post by ID"""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT id, title, content, author_id, author_name, post_type, status,
+                   upvotes, created_at, updated_at, implemented_at, implementation_commit
+            FROM submolt_posts
+            WHERE id = ?
+        """, (post_id,))
+        
+        row = cursor.fetchone()
+        if not row:
+            return None
+        
+        return {
+            'id': row[0],
+            'title': row[1],
+            'content': row[2],
+            'author_id': row[3],
+            'author_name': row[4],
+            'type': row[5],
+            'status': row[6],
+            'upvotes': row[7],
+            'created_at': row[8],
+            'updated_at': row[9],
+            'implemented_at': row[10],
+            'implementation_commit': row[11]
+        }
+
+    def update_post_status(self, post_id: str, status: str, implemented_by: str = None,
+                          implementation_commit: str = None) -> bool:
+        """Update post status (e.g., mark as implemented)"""
+        cursor = self.conn.cursor()
+        now = datetime.now().isoformat()
+        
+        fields = ["status = ?", "updated_at = ?"]
+        params = [status, now]
+        
+        if status == "implemented":
+            fields.append("implemented_at = ?")
+            params.append(now)
+        if implemented_by:
+            fields.append("implemented_by = ?")
+            params.append(implemented_by)
+        if implementation_commit:
+            fields.append("implementation_commit = ?")
+            params.append(implementation_commit)
+        
+        params.append(post_id)
+        
+        cursor.execute(f"""
+            UPDATE submolt_posts
+            SET {', '.join(fields)}
+            WHERE id = ?
+        """, params)
+        
+        self.conn.commit()
+        return cursor.rowcount > 0
+
+    def add_submolt_comment(self, comment_id: str, post_id: str, content: str,
+                           author_id: str, author_name: str, parent_id: str = None,
+                           is_official_response: bool = False) -> bool:
+        """Add a comment to a post"""
+        cursor = self.conn.cursor()
+        now = datetime.now().isoformat()
+        try:
+            cursor.execute("""
+                INSERT INTO submolt_comments (id, post_id, parent_id, content, author_id,
+                                             author_name, is_official_response, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (comment_id, post_id, parent_id, content, author_id, author_name,
+                  1 if is_official_response else 0, now, now))
+            self.conn.commit()
+            return True
+        except Exception as e:
+            print(f"Error adding comment: {e}")
+            return False
+
+    def get_post_comments(self, post_id: str) -> List[Dict]:
+        """Get all comments for a post"""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT id, parent_id, content, author_id, author_name, is_official_response,
+                   created_at, updated_at
+            FROM submolt_comments
+            WHERE post_id = ?
+            ORDER BY created_at ASC
+        """, (post_id,))
+        
+        comments = []
+        for row in cursor.fetchall():
+            comments.append({
+                'id': row[0],
+                'parent_id': row[1],
+                'content': row[2],
+                'author_id': row[3],
+                'author_name': row[4],
+                'is_official_response': bool(row[5]),
+                'created_at': row[6],
+                'updated_at': row[7]
+            })
+        return comments
+
+    def get_open_feature_requests(self) -> List[Dict]:
+        """Get all open feature requests/bug reports for auto-implementation"""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT id, title, content, post_type, author_id, author_name, created_at
+            FROM submolt_posts
+            WHERE status = 'open' AND post_type IN ('feature', 'bug', 'qol')
+            ORDER BY created_at ASC
+        """)
+        
+        requests = []
+        for row in cursor.fetchall():
+            requests.append({
+                'id': row[0],
+                'title': row[1],
+                'content': row[2],
+                'type': row[3],
+                'author_id': row[4],
+                'author_name': row[5],
+                'created_at': row[6]
+            })
+        return requests
