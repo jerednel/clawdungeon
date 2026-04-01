@@ -1038,6 +1038,78 @@ class Database:
             },
             
             # General Quests
+            
+            # Warrior Saga - 5 Quest Chain
+            "warrior_saga_1_proving": {
+                "id": "warrior_saga_1_proving",
+                "title": "Path of the Blade",
+                "description": "Guildmaster Thorne grunts as you approach. 'So you want to be a warrior? Words are cheap. Steel is truth. Go kill five goblins and bring me their ears. Prove you have what it takes.'",
+                "type": "kill",
+                "requirements": {"enemy_type": "goblin", "count": 5},
+                "prerequisites": {"class": "warrior", "level": 1},
+                "rewards": {"xp": 100, "gold": 50, "items": ["iron_sword"], "reputation": {"warriors_guild": 10}},
+                "giver": "guildmaster_thorne",
+                "location": "Warrior's Hall",
+                "chain": "warrior_saga",
+                "chain_position": 1,
+                "next_quest": "warrior_saga_2_blood"
+            },
+            "warrior_saga_2_blood": {
+                "id": "warrior_saga_2_blood",
+                "title": "Blood and Honor",
+                "description": "Thorne nods approvingly. 'You survived. Good. But goblins are pests. Orcs are warriors. Go to the orc camps and kill three of them. Learn what a real fight feels like.'",
+                "type": "kill",
+                "requirements": {"enemy_type": "orc", "count": 3},
+                "prerequisites": {"quest_completed": "warrior_saga_1_proving", "level": 3},
+                "rewards": {"xp": 200, "gold": 100, "items": ["chainmail"], "reputation": {"warriors_guild": 15}},
+                "giver": "guildmaster_thorne",
+                "location": "Warrior's Hall",
+                "chain": "warrior_saga",
+                "chain_position": 2,
+                "next_quest": "warrior_saga_3_siege"
+            },
+            "warrior_saga_3_siege": {
+                "id": "warrior_saga_3_siege",
+                "title": "The Siege of Ironhold",
+                "description": "Thorne's face is grim. 'Goblins are massing for an attack on Ironhold. This is no skirmish - this is war. Stand with the Vanguard. Defend the walls. Kill ten of the beasts before they breach the gates!'",
+                "type": "kill",
+                "requirements": {"enemy_type": "goblin", "count": 10},
+                "prerequisites": {"quest_completed": "warrior_saga_2_blood", "level": 5},
+                "rewards": {"xp": 350, "gold": 200, "items": ["iron_helmet"], "reputation": {"warriors_guild": 25, "ironhold": 20}},
+                "giver": "guildmaster_thorne",
+                "location": "Ironhold Gates",
+                "chain": "warrior_saga",
+                "chain_position": 3,
+                "next_quest": "warrior_saga_4_traitor"
+            },
+            "warrior_saga_4_traitor": {
+                "id": "warrior_saga_4_traitor",
+                "title": "Traitor's Blade",
+                "description": "Thorne lowers his voice. 'There is a traitor in the Vanguard. Someone has been feeding information to the goblins. I need you to investigate. Question the suspects. Find the truth. But be careful - the traitor is dangerous.'",
+                "type": "investigation",
+                "requirements": {"investigation_target": "vanguard_traitor", "choices_made": 1},
+                "prerequisites": {"quest_completed": "warrior_saga_3_siege", "level": 7},
+                "rewards": {"xp": 500, "gold": 300, "items": ["steel_blade"], "reputation": {"warriors_guild": 30, "ironhold": 25}},
+                "giver": "guildmaster_thorne",
+                "location": "Warrior's Hall",
+                "chain": "warrior_saga",
+                "chain_position": 4,
+                "next_quest": "warrior_saga_5_champion"
+            },
+            "warrior_saga_5_champion": {
+                "id": "warrior_saga_5_champion",
+                "title": "The Champion's Trial",
+                "description": "Thorne stands before the assembled Vanguard. 'You have proven yourself in battle, in siege, and in shadow. But one test remains. Face me in honorable combat. Win, and you will be named Champion of Ironhold.'",
+                "type": "boss",
+                "requirements": {"enemy_type": "guildmaster_thorne", "count": 1},
+                "prerequisites": {"quest_completed": "warrior_saga_4_traitor", "level": 10},
+                "rewards": {"xp": 1000, "gold": 500, "items": ["plate_of_the_guardian"], "reputation": {"warriors_guild": 50, "ironhold": 50}, "title": "Champion of Ironhold"},
+                "giver": "guildmaster_thorne",
+                "location": "Proving Grounds",
+                "chain": "warrior_saga",
+                "chain_position": 5,
+                "next_quest": None
+            },
             "goblin_extermination": {
                 "id": "goblin_extermination",
                 "title": "Goblin Menace",
