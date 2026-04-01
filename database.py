@@ -1309,6 +1309,15 @@ class Database:
         cursor.execute("SELECT COUNT(*) FROM party_members WHERE party_id = ?", (party_id,))
         return cursor.fetchone()[0]
 
+    def force_add_party_member(self, party_id: str, player_id: str):
+        """Directly add a player to a party without an invite (used by auto-match)."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "INSERT OR IGNORE INTO party_members (party_id, player_id, joined_at) VALUES (?, ?, ?)",
+            (party_id, player_id, datetime.now().isoformat())
+        )
+        self.conn.commit()
+
     def remove_party_member(self, party_id: str, player_id: str):
         cursor = self.conn.cursor()
         cursor.execute(

@@ -110,6 +110,9 @@ class DungeonAttackRequest(BaseModel):
 class DungeonHealRequest(BaseModel):
     target_player_id: str
 
+class LFGAutoMatchRequest(BaseModel):
+    dungeon_id: str
+
 class EnemyConfig:
     TYPES = {
         'goblin': {'name': 'Goblin Scout', 'health': 25, 'attack': 8, 'defense': 3, 'xp': 15, 'gold': 5},
@@ -2385,6 +2388,102 @@ async def remove_lfg_post(player_id: str = Depends(get_current_player)):
     """Remove your LFG post."""
     db.remove_lfg_post(player_id)
     return {"message": "LFG post removed"}
+
+
+@app.post("/api/lfg/auto-match")
+async def lfg_auto_match(request: LFGAutoMatchRequest, player_id: str = Depends(get_current_player)):
+    """
+    Queue for auto-match and instantly form a party when enough players are waiting.
+
+    Posting LFG for a dungeon signals consent to be auto-matched. When enough
+    players are queued (>= dungeon min_players), the server forms the party
+    automatically — no manual invite/accept flow needed.
+
+    Call this endpoint repeatedly (poll every ~10s) until status is 'matched'.
+    """
+    dungeon_def = DUNGEON_DEFINITIONS.get(request.dungeon_id)
+    if not dungeon_def:
+        raise HTTPException(status_code=404, detail="Unknown dungeon_id")
+
+    # Must have an active character
+    character = db.get_active_character(player_id)
+    if not character:
+        raise HTTPException(status_code=404, detail="No active character")
+
+    # Can't auto-match while already in a party
+    existing_party = db.get_player_party(player_id)
+    if existing_party:
+        raise HTTPException(status_code=400, detail="You are already in a party. Leave it first.")
+
+    # Upsert the requesting player's LFG post for this dungeon
+    db.post_lfg(
+        player_id, character["name"], character["class"],
+        character["level"], request.dungeon_id, None,
+        f"Auto-matching for {dungeon_def['name']}"
+    )
+
+    # Gather all queued players for this dungeon
+    lfg_posts = db.get_lfg_posts(request.dungeon_id)
+
+    # Filter: not already in a party, meets level requirement, character exists
+    candidates = []
+    for post in lfg_posts:
+        if db.get_player_party(post["player_id"]):
+            continue
+        if post["level"] < dungeon_def["min_level"]:
+            continue
+        if db.check_dungeon_lockout(post["player_id"], request.dungeon_id):
+            continue
+        candidates.append(post)
+        if len(candidates) >= dungeon_def["max_players"]:
+            break
+
+    needed = dungeon_def["min_players"]
+
+    if len(candidates) < needed:
+        return {
+            "status": "queued",
+            "dungeon": dungeon_def["name"],
+            "difficulty": dungeon_def["difficulty"],
+            "players_in_queue": len(candidates),
+            "players_needed": needed,
+            "still_need": needed - len(candidates),
+            "your_position": next(
+                (i + 1 for i, p in enumerate(candidates) if p["player_id"] == player_id), 1
+            ),
+            "queue": [
+                {"character_name": p["character_name"], "class": p["class"], "level": p["level"]}
+                for p in candidates
+            ],
+            "tip": "Poll this endpoint every 10s. Party forms automatically when enough players queue.",
+        }
+
+    # Enough players — form the party. Requester is leader if first in queue,
+    # otherwise the first candidate becomes leader.
+    matched = candidates[:dungeon_def["max_players"]]
+    leader = next((p for p in matched if p["player_id"] == player_id), matched[0])
+    others = [p for p in matched if p["player_id"] != leader["player_id"]]
+
+    party_id = db.create_party(leader["player_id"])
+    for p in others:
+        db.force_add_party_member(party_id, p["player_id"])
+        db.remove_lfg_post(p["player_id"])
+    db.remove_lfg_post(leader["player_id"])
+
+    return {
+        "status": "matched",
+        "party_id": party_id,
+        "dungeon": dungeon_def["name"],
+        "difficulty": dungeon_def["difficulty"],
+        "you_are_leader": leader["player_id"] == player_id,
+        "party": [
+            {"character_name": p["character_name"], "class": p["class"], "level": p["level"],
+             "is_leader": p["player_id"] == leader["player_id"]}
+            for p in matched
+        ],
+        "next_step": f"POST /api/dungeon/enter/{request.dungeon_id} (leader only)",
+        "tip": "If you are not the leader, poll GET /api/party/status and wait for the leader to enter.",
+    }
 
 
 if __name__ == "__main__":
