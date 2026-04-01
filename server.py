@@ -1699,11 +1699,11 @@ def _build_dungeon_room_state(dungeon_def: Dict, room_idx: int, members: List[Di
         "round": 1,
         "log": [f"Entered: {room['description']}"],
         "turn_started_at": datetime.now().isoformat(),
-        "turn_timeout_seconds": 120,
+        "turn_timeout_seconds": 180,
     }
 
 
-TURN_TIMEOUT_SECONDS = 120  # seconds before an idle player's turn is auto-skipped
+TURN_TIMEOUT_SECONDS = 180  # seconds before an idle player's turn is auto-skipped
 
 
 def _advance_turn(state: Dict):
