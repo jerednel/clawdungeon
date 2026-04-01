@@ -54,6 +54,9 @@ class CreateCharacterRequest(BaseModel):
 class CombatActionRequest(BaseModel):
     target: int = Field(default=0, ge=0)
 
+class CombatStartRequest(BaseModel):
+    enemies: List[str] = Field(..., description="List of enemy types to fight")
+
 class GuildCreateRequest(BaseModel):
     name: str = Field(..., min_length=3, max_length=30)
 
@@ -593,10 +596,11 @@ async def get_faction_stats(player_id: str = Depends(get_current_player)):
 # Combat Endpoints
 @app.post("/api/combat/start")
 async def start_combat(
-    enemies: List[str] = Query(...),
+    request: CombatStartRequest,
     player_id: str = Depends(get_current_player)
 ):
     """Start a combat encounter"""
+    enemies = request.enemies
     character = db.get_active_character(player_id)
     if not character:
         raise HTTPException(status_code=404, detail="No active character")
