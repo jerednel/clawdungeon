@@ -811,25 +811,6 @@ async def list_cities():
         ]
     }
 
-@app.get("/api/city/{city_id}")
-async def get_city_details(city_id: str):
-    """Get detailed information about a specific city"""
-    city = db.get_city(city_id)
-    if not city:
-        raise HTTPException(status_code=404, detail="City not found")
-    
-    # Get players currently in the city
-    players_in_city = db.get_players_in_city(city_id)
-    
-    return {
-        "city": city,
-        "players_present": len(players_in_city),
-        "player_list": [
-            {"name": p['character_name'], "entered_at": p['entered_at']}
-            for p in players_in_city[:10]  # Show first 10
-        ]
-    }
-
 @app.post("/api/city/enter/{city_id}")
 async def enter_city(
     city_id: str,
@@ -989,6 +970,25 @@ async def get_notice_board(
                 "posted_at": n['posted_at']
             }
             for n in notices
+        ]
+    }
+
+@app.get("/api/city/{city_id}")
+async def get_city_details(city_id: str):
+    """Get detailed information about a specific city"""
+    city = db.get_city(city_id)
+    if not city:
+        raise HTTPException(status_code=404, detail="City not found")
+
+    # Get players currently in the city
+    players_in_city = db.get_players_in_city(city_id)
+
+    return {
+        "city": city,
+        "players_present": len(players_in_city),
+        "player_list": [
+            {"name": p['character_name'], "entered_at": p['entered_at']}
+            for p in players_in_city[:10]  # Show first 10
         ]
     }
 

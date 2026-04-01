@@ -571,11 +571,11 @@ class Database:
         
         # Delete old messages if more than 100 for this city
         cursor.execute("""
-            DELETE FROM city_chat WHERE id IN (
+            DELETE FROM city_chat WHERE city_id = ? AND id NOT IN (
                 SELECT id FROM city_chat WHERE city_id = ?
-                ORDER BY timestamp DESC LIMIT -1 OFFSET 100
+                ORDER BY timestamp DESC LIMIT 100
             )
-        """, (city_id,))
+        """, (city_id, city_id))
         
         self.conn.commit()
     
