@@ -1645,6 +1645,18 @@ async def get_codex():
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _advance_past_dead(state: Dict):
+    """Advance current_turn_index past any dead players after a round resets."""
+    alive_pids = {m["player_id"] for m in state["party"] if m["alive"]}
+    if not alive_pids:
+        return
+    attempts = 0
+    while (state["turn_order"][state["current_turn_index"]] not in alive_pids
+           and attempts < len(state["turn_order"])):
+        state["current_turn_index"] = (state["current_turn_index"] + 1) % len(state["turn_order"])
+        attempts += 1
+
+
 def _build_dungeon_room_state(dungeon_def: Dict, room_idx: int, members: List[Dict], party_id: str) -> Dict:
     """Build the combat state dict for a dungeon room."""
     room = dungeon_def["rooms"][room_idx]
@@ -2099,6 +2111,7 @@ async def dungeon_attack(request: DungeonAttackRequest, player_id: str = Depends
         state["players_acted_this_round"] = []
         state["round"] += 1
         state["current_turn_index"] = 0
+        _advance_past_dead(state)  # skip any players who died this round
 
     # Persist HP changes to character records
     for m in state["party"]:
@@ -2263,6 +2276,7 @@ async def dungeon_heal(request: DungeonHealRequest, player_id: str = Depends(get
         state["players_acted_this_round"] = []
         state["round"] += 1
         state["current_turn_index"] = 0
+        _advance_past_dead(state)  # skip any players who died this round
 
     db.update_dungeon_run(run["id"], run["current_room"], state)
     return _format_dungeon_status(run, dungeon_def, player_id)
