@@ -285,6 +285,79 @@ class Database:
             )
         """)
 
+        # Party system
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS parties (
+                id TEXT PRIMARY KEY,
+                leader_id TEXT NOT NULL,
+                status TEXT DEFAULT 'forming',
+                max_size INTEGER DEFAULT 4,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (leader_id) REFERENCES players (id)
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS party_members (
+                party_id TEXT NOT NULL,
+                player_id TEXT NOT NULL,
+                joined_at TEXT NOT NULL,
+                PRIMARY KEY (party_id, player_id),
+                FOREIGN KEY (party_id) REFERENCES parties (id),
+                FOREIGN KEY (player_id) REFERENCES players (id)
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS party_invites (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                party_id TEXT NOT NULL,
+                inviter_id TEXT NOT NULL,
+                invitee_id TEXT NOT NULL,
+                status TEXT DEFAULT 'pending',
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (party_id) REFERENCES parties (id)
+            )
+        """)
+
+        # Dungeon runs
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS dungeon_runs (
+                id TEXT PRIMARY KEY,
+                dungeon_id TEXT NOT NULL,
+                party_id TEXT NOT NULL,
+                status TEXT DEFAULT 'active',
+                current_room INTEGER DEFAULT 0,
+                combat_state TEXT,
+                started_at TEXT NOT NULL,
+                completed_at TEXT
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS dungeon_lockouts (
+                player_id TEXT NOT NULL,
+                dungeon_id TEXT NOT NULL,
+                locked_until TEXT NOT NULL,
+                PRIMARY KEY (player_id, dungeon_id),
+                FOREIGN KEY (player_id) REFERENCES players (id)
+            )
+        """)
+
+        # LFG board
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS lfg_posts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                player_id TEXT NOT NULL,
+                character_name TEXT NOT NULL,
+                class TEXT NOT NULL,
+                level INTEGER NOT NULL,
+                dungeon_id TEXT,
+                role TEXT,
+                message TEXT,
+                posted_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                FOREIGN KEY (player_id) REFERENCES players (id)
+            )
+        """)
+
         self.conn.commit()
         self._init_quests()
 
@@ -478,13 +551,14 @@ class Database:
         if not selected_rarity:
             return None
 
-        # Pick a random item of that rarity (exclude starters and materials)
+        # Pick a random item of that rarity (exclude starters, materials, and dungeon-only items)
         item_db = self.get_item_database()
         candidates = [
             item_id for item_id, item in item_db.items()
             if isinstance(item, dict)
             and item.get('rarity') == selected_rarity
             and not item_id.startswith('starter_')
+            and not item.get('dungeon_only', False)
             and item.get('type') in ('weapon', 'armor', 'consumable')
         ]
 
@@ -1167,6 +1241,327 @@ class Database:
                     bonuses[bonus_key] = bonuses.get(bonus_key, 0) + bonus_val * points
 
         return bonuses
+
+    # -------------------------------------------------------------------------
+    # Party methods
+    # -------------------------------------------------------------------------
+
+    def create_party(self, leader_id: str) -> str:
+        import uuid
+        party_id = str(uuid.uuid4())
+        now = datetime.now().isoformat()
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "INSERT INTO parties (id, leader_id, status, created_at) VALUES (?, ?, 'forming', ?)",
+            (party_id, leader_id, now)
+        )
+        cursor.execute(
+            "INSERT INTO party_members (party_id, player_id, joined_at) VALUES (?, ?, ?)",
+            (party_id, leader_id, now)
+        )
+        self.conn.commit()
+        return party_id
+
+    def get_party(self, party_id: str) -> Optional[Dict]:
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT * FROM parties WHERE id = ?", (party_id,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+    def get_player_party(self, player_id: str) -> Optional[Dict]:
+        """Get the active party this player is in."""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT p.* FROM parties p
+            JOIN party_members pm ON p.id = pm.party_id
+            WHERE pm.player_id = ? AND p.status != 'disbanded'
+        """, (player_id,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+    def get_party_members(self, party_id: str) -> List[Dict]:
+        """Get all party members with their character info."""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT pm.player_id, pm.joined_at,
+                   c.name as character_name, c.class, c.level, c.health, c.max_health,
+                   c.attack, c.defense, c.speed, c.faction, c.magic_damage, c.healing_power,
+                   c.critical_chance, c.equipment, c.inventory,
+                   p.id as leader_id
+            FROM party_members pm
+            JOIN characters c ON pm.player_id = c.player_id AND c.status = 'active'
+            JOIN players p ON p.id = (SELECT leader_id FROM parties WHERE id = ?)
+            WHERE pm.party_id = ?
+        """, (party_id, party_id))
+        rows = cursor.fetchall()
+        members = []
+        for row in rows:
+            m = dict(row)
+            m['equipment'] = json.loads(m['equipment'])
+            m['inventory'] = json.loads(m['inventory'])
+            m['is_leader'] = (m['player_id'] == m['leader_id'])
+            del m['leader_id']
+            members.append(m)
+        return members
+
+    def get_party_member_count(self, party_id: str) -> int:
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM party_members WHERE party_id = ?", (party_id,))
+        return cursor.fetchone()[0]
+
+    def remove_party_member(self, party_id: str, player_id: str):
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "DELETE FROM party_members WHERE party_id = ? AND player_id = ?",
+            (party_id, player_id)
+        )
+        self.conn.commit()
+
+    def disband_party(self, party_id: str):
+        cursor = self.conn.cursor()
+        cursor.execute("UPDATE parties SET status = 'disbanded' WHERE id = ?", (party_id,))
+        cursor.execute("DELETE FROM party_members WHERE party_id = ?", (party_id,))
+        cursor.execute("UPDATE party_invites SET status = 'expired' WHERE party_id = ?", (party_id,))
+        self.conn.commit()
+
+    def transfer_party_leadership(self, party_id: str, new_leader_id: str):
+        cursor = self.conn.cursor()
+        cursor.execute("UPDATE parties SET leader_id = ? WHERE id = ?", (new_leader_id, party_id))
+        self.conn.commit()
+
+    def create_party_invite(self, party_id: str, inviter_id: str, invitee_id: str) -> int:
+        cursor = self.conn.cursor()
+        # Expire any existing pending invite for this invitee from this party
+        cursor.execute("""
+            UPDATE party_invites SET status = 'expired'
+            WHERE party_id = ? AND invitee_id = ? AND status = 'pending'
+        """, (party_id, invitee_id))
+        cursor.execute("""
+            INSERT INTO party_invites (party_id, inviter_id, invitee_id, status, created_at)
+            VALUES (?, ?, ?, 'pending', ?)
+        """, (party_id, inviter_id, invitee_id, datetime.now().isoformat()))
+        self.conn.commit()
+        return cursor.lastrowid
+
+    def get_pending_invites(self, player_id: str) -> List[Dict]:
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT pi.id, pi.party_id, pi.inviter_id, pi.created_at,
+                   p.username as inviter_name,
+                   (SELECT COUNT(*) FROM party_members WHERE party_id = pi.party_id) as current_size,
+                   pt.max_size
+            FROM party_invites pi
+            JOIN players p ON pi.inviter_id = p.id
+            JOIN parties pt ON pi.party_id = pt.id
+            WHERE pi.invitee_id = ? AND pi.status = 'pending'
+            ORDER BY pi.created_at DESC
+        """, (player_id,))
+        return [dict(row) for row in cursor.fetchall()]
+
+    def respond_to_invite(self, invite_id: int, player_id: str, accept: bool) -> tuple:
+        """Accept or decline an invite. Returns (success, message, party_id or None)."""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            "SELECT * FROM party_invites WHERE id = ? AND invitee_id = ? AND status = 'pending'",
+            (invite_id, player_id)
+        )
+        invite = cursor.fetchone()
+        if not invite:
+            return False, "Invite not found or already responded to", None
+        invite = dict(invite)
+
+        if not accept:
+            cursor.execute("UPDATE party_invites SET status = 'declined' WHERE id = ?", (invite_id,))
+            self.conn.commit()
+            return True, "Invite declined", None
+
+        # Check party still valid
+        party = self.get_party(invite['party_id'])
+        if not party or party['status'] == 'disbanded':
+            cursor.execute("UPDATE party_invites SET status = 'expired' WHERE id = ?", (invite_id,))
+            self.conn.commit()
+            return False, "Party no longer exists", None
+
+        count = self.get_party_member_count(invite['party_id'])
+        if count >= party['max_size']:
+            return False, "Party is full", None
+
+        # Check player not already in a party
+        existing = self.get_player_party(player_id)
+        if existing:
+            return False, "You are already in a party", None
+
+        cursor.execute(
+            "INSERT INTO party_members (party_id, player_id, joined_at) VALUES (?, ?, ?)",
+            (invite['party_id'], player_id, datetime.now().isoformat())
+        )
+        cursor.execute("UPDATE party_invites SET status = 'accepted' WHERE id = ?", (invite_id,))
+        self.conn.commit()
+        return True, "Joined party", invite['party_id']
+
+    # -------------------------------------------------------------------------
+    # Dungeon methods
+    # -------------------------------------------------------------------------
+
+    def create_dungeon_run(self, dungeon_id: str, party_id: str, combat_state: Dict) -> str:
+        import uuid
+        run_id = str(uuid.uuid4())
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            INSERT INTO dungeon_runs (id, dungeon_id, party_id, status, current_room, combat_state, started_at)
+            VALUES (?, ?, ?, 'active', 0, ?, ?)
+        """, (run_id, dungeon_id, party_id, json.dumps(combat_state), datetime.now().isoformat()))
+        # Update party status
+        cursor.execute("UPDATE parties SET status = 'in_dungeon' WHERE id = ?", (party_id,))
+        self.conn.commit()
+        return run_id
+
+    def get_active_dungeon_run(self, party_id: str) -> Optional[Dict]:
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT * FROM dungeon_runs WHERE party_id = ? AND status = 'active'
+        """, (party_id,))
+        row = cursor.fetchone()
+        if not row:
+            return None
+        run = dict(row)
+        run['combat_state'] = json.loads(run['combat_state'])
+        return run
+
+    def update_dungeon_run(self, run_id: str, current_room: int, combat_state: Dict):
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            UPDATE dungeon_runs SET current_room = ?, combat_state = ? WHERE id = ?
+        """, (current_room, json.dumps(combat_state), run_id))
+        self.conn.commit()
+
+    def complete_dungeon_run(self, run_id: str, party_id: str, status: str):
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            UPDATE dungeon_runs SET status = ?, completed_at = ? WHERE id = ?
+        """, (status, datetime.now().isoformat(), run_id))
+        cursor.execute("UPDATE parties SET status = 'forming' WHERE id = ?", (party_id,))
+        self.conn.commit()
+
+    def check_dungeon_lockout(self, player_id: str, dungeon_id: str) -> bool:
+        """Returns True if player is locked out."""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT locked_until FROM dungeon_lockouts
+            WHERE player_id = ? AND dungeon_id = ?
+        """, (player_id, dungeon_id))
+        row = cursor.fetchone()
+        if not row:
+            return False
+        return datetime.fromisoformat(row[0]) > datetime.now()
+
+    def get_player_lockouts(self, player_id: str) -> List[Dict]:
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT dungeon_id, locked_until FROM dungeon_lockouts
+            WHERE player_id = ? AND locked_until > ?
+        """, (player_id, datetime.now().isoformat()))
+        return [dict(row) for row in cursor.fetchall()]
+
+    def set_dungeon_lockout(self, player_id: str, dungeon_id: str, hours: int):
+        locked_until = (datetime.now() + timedelta(hours=hours)).isoformat()
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            INSERT OR REPLACE INTO dungeon_lockouts (player_id, dungeon_id, locked_until)
+            VALUES (?, ?, ?)
+        """, (player_id, dungeon_id, locked_until))
+        self.conn.commit()
+
+    def get_dungeon_loot(self, table_key: str, dungeon_id: Optional[str] = None) -> Optional[str]:
+        """Roll loot from a dungeon-specific drop table. Includes dungeon_only items."""
+        drop_tables = DROP_TABLES
+        table = drop_tables.get(table_key, {})
+        if not table:
+            return None
+
+        roll = random.random()
+        cumulative = 0.0
+        selected_rarity = None
+        for rarity in ['legendary', 'epic', 'rare', 'uncommon', 'common']:
+            cumulative += table.get(rarity, 0)
+            if roll < cumulative:
+                selected_rarity = rarity
+                break
+
+        if not selected_rarity:
+            return None
+
+        item_db = self.get_item_database()
+
+        # Prefer dungeon-specific items for the matching dungeon
+        candidates_dungeon = [
+            item_id for item_id, item in item_db.items()
+            if isinstance(item, dict)
+            and item.get('rarity') == selected_rarity
+            and item.get('dungeon_only', False)
+            and (dungeon_id is None or item.get('dungeon') == dungeon_id)
+            and item.get('type') in ('weapon', 'armor', 'consumable')
+            and not item_id.startswith('_comment')
+        ]
+
+        # Fall back to general pool if no dungeon-specific items of this rarity
+        candidates_general = [
+            item_id for item_id, item in item_db.items()
+            if isinstance(item, dict)
+            and item.get('rarity') == selected_rarity
+            and not item_id.startswith('starter_')
+            and not item_id.startswith('_comment')
+            and item.get('type') in ('weapon', 'armor', 'consumable')
+        ]
+
+        candidates = candidates_dungeon if candidates_dungeon else candidates_general
+        return random.choice(candidates) if candidates else None
+
+    # -------------------------------------------------------------------------
+    # LFG methods
+    # -------------------------------------------------------------------------
+
+    def post_lfg(self, player_id: str, character_name: str, char_class: str,
+                 level: int, dungeon_id: Optional[str], role: Optional[str],
+                 message: Optional[str]) -> int:
+        # Remove any existing post by this player
+        self.remove_lfg_post(player_id)
+        now = datetime.now()
+        expires = (now + timedelta(minutes=30)).isoformat()
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            INSERT INTO lfg_posts (player_id, character_name, class, level, dungeon_id,
+                                   role, message, posted_at, expires_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (player_id, character_name, char_class, level, dungeon_id, role, message,
+              now.isoformat(), expires))
+        self.conn.commit()
+        return cursor.lastrowid
+
+    def get_lfg_posts(self, dungeon_id: Optional[str] = None) -> List[Dict]:
+        self._cleanup_expired_lfg()
+        cursor = self.conn.cursor()
+        if dungeon_id:
+            cursor.execute("""
+                SELECT * FROM lfg_posts WHERE expires_at > ? AND dungeon_id = ?
+                ORDER BY posted_at DESC
+            """, (datetime.now().isoformat(), dungeon_id))
+        else:
+            cursor.execute("""
+                SELECT * FROM lfg_posts WHERE expires_at > ?
+                ORDER BY posted_at DESC
+            """, (datetime.now().isoformat(),))
+        return [dict(row) for row in cursor.fetchall()]
+
+    def remove_lfg_post(self, player_id: str):
+        cursor = self.conn.cursor()
+        cursor.execute("DELETE FROM lfg_posts WHERE player_id = ?", (player_id,))
+        self.conn.commit()
+
+    def _cleanup_expired_lfg(self):
+        cursor = self.conn.cursor()
+        cursor.execute("DELETE FROM lfg_posts WHERE expires_at <= ?", (datetime.now().isoformat(),))
+        self.conn.commit()
 
     def get_all_characters_for_codex(self) -> List[Dict]:
         """Get all active characters for the codex display"""

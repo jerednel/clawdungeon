@@ -96,6 +96,17 @@ class SpendTalentRequest(BaseModel):
 class PortraitUploadRequest(BaseModel):
     image_data: str  # base64 encoded image
 
+class LFGPostRequest(BaseModel):
+    dungeon_id: Optional[str] = None
+    role: Optional[str] = Field(default=None, pattern="^(tank|healer|dps|any)?$")
+    message: Optional[str] = Field(default=None, max_length=200)
+
+class DungeonAttackRequest(BaseModel):
+    target: int = Field(default=0, ge=0)
+
+class DungeonHealRequest(BaseModel):
+    target_player_id: str
+
 class EnemyConfig:
     TYPES = {
         'goblin': {'name': 'Goblin Scout', 'health': 25, 'attack': 8, 'defense': 3, 'xp': 15, 'gold': 5},
@@ -117,6 +128,63 @@ class PlayerClass:
         'rogue': {'health': 90, 'mana': 50, 'attack': 10, 'defense': 5, 'speed': 12, 'magic_damage': 0, 'healing_power': 0},
         'cleric': {'health': 100, 'mana': 80, 'attack': 7, 'defense': 7, 'speed': 6, 'magic_damage': 0, 'healing_power': 10}
     }
+
+DUNGEON_DEFINITIONS = {
+    "goblin_warren": {
+        "id": "goblin_warren",
+        "name": "Goblin Warren",
+        "difficulty": "normal",
+        "min_players": 2,
+        "max_players": 4,
+        "min_level": 1,
+        "description": "A maze of tunnels infested with goblins and their spider pets.",
+        "lockout_hours": 24,
+        "loot_table": "dungeon_normal",
+        "boss_loot_table": "dungeon_normal_boss",
+        "rooms": [
+            {"type": "combat", "enemies": ["goblin", "goblin"], "description": "Entry chamber — two goblins on guard."},
+            {"type": "combat", "enemies": ["goblin", "spider", "goblin"], "description": "Spider pit — goblins and their arachnid pets."},
+            {"type": "combat", "enemies": ["goblin", "goblin", "goblin"], "description": "Goblin barracks — a full squad awaits."},
+            {"type": "boss", "enemies": ["orc"], "description": "Goblin King's throne room.", "boss_name": "Goblin King Gruk", "boss_scale": 2.5},
+        ],
+    },
+    "skeleton_crypt": {
+        "id": "skeleton_crypt",
+        "name": "Skeleton Crypt",
+        "difficulty": "hard",
+        "min_players": 3,
+        "max_players": 4,
+        "min_level": 15,
+        "description": "Ancient burial chambers haunted by undead warriors and their Lich Lord.",
+        "lockout_hours": 24,
+        "loot_table": "dungeon_hard",
+        "boss_loot_table": "dungeon_hard_boss",
+        "rooms": [
+            {"type": "combat", "enemies": ["skeleton", "skeleton"], "description": "Crypt entrance — the dead rise."},
+            {"type": "combat", "enemies": ["skeleton", "skeleton", "skeleton"], "description": "The ossuary — bones everywhere."},
+            {"type": "combat", "enemies": ["orc", "skeleton", "skeleton"], "description": "The tomb guardians — elite undead."},
+            {"type": "boss", "enemies": ["skeleton"], "description": "The Lich Lord's sanctum.", "boss_name": "Malgrath the Lich Lord", "boss_scale": 3.5},
+        ],
+    },
+    "dragons_lair": {
+        "id": "dragons_lair",
+        "name": "Dragon's Lair",
+        "difficulty": "legendary",
+        "min_players": 4,
+        "max_players": 4,
+        "min_level": 30,
+        "description": "The volcanic fortress of Ignis, the ancient fire dragon. Requires a full party of four.",
+        "lockout_hours": 168,
+        "loot_table": "dungeon_legendary",
+        "boss_loot_table": "dungeon_legendary_boss",
+        "rooms": [
+            {"type": "combat", "enemies": ["orc", "orc", "wolf"], "description": "Volcanic entrance — Ignis's outer guard."},
+            {"type": "combat", "enemies": ["orc", "orc", "orc", "skeleton"], "description": "Dragon's guard post — elite soldiers."},
+            {"type": "combat", "enemies": ["orc", "orc", "orc", "orc"], "description": "Inner sanctum — the dragon's champions."},
+            {"type": "boss", "enemies": ["orc"], "description": "The Dragon's throne.", "boss_name": "Ignis the Ancient", "boss_scale": 6.0},
+        ],
+    },
+}
 
 # FastAPI App
 @asynccontextmanager
@@ -1557,6 +1625,762 @@ async def get_codex():
         })
 
     return {"codex": codex_entries, "count": len(codex_entries)}
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _build_dungeon_room_state(dungeon_def: Dict, room_idx: int, members: List[Dict], party_id: str) -> Dict:
+    """Build the combat state dict for a dungeon room."""
+    room = dungeon_def["rooms"][room_idx]
+    is_boss = room["type"] == "boss"
+    boss_scale = room.get("boss_scale", 1.0)
+
+    # Scale enemies relative to average party level
+    avg_level = max(1, sum(m["level"] for m in members) // len(members))
+    enemy_level = max(1, avg_level + (2 if is_boss else 0))
+
+    enemies = []
+    for etype in room["enemies"]:
+        base = EnemyConfig.TYPES.get(etype, EnemyConfig.TYPES["goblin"])
+        hp = int(base["health"] * (1 + (enemy_level - 1) * 0.2) * (boss_scale if is_boss else 1.0))
+        enemies.append({
+            "type": etype,
+            "name": room.get("boss_name", base["name"]) if is_boss else base["name"],
+            "health": hp,
+            "max_health": hp,
+            "attack": int(base["attack"] * (1 + (enemy_level - 1) * 0.15) * (boss_scale * 0.6 if is_boss else 1.0)),
+            "defense": int(base["defense"] * (1 + (enemy_level - 1) * 0.1)),
+            "xp_reward": calculate_enemy_xp(etype, enemy_level, is_boss=is_boss),
+            "gold_reward": int(base["gold"] * (1 + (enemy_level - 1) * 0.2) * (boss_scale if is_boss else 1.0)),
+        })
+
+    # Party members in combat state (snapshot of current HP)
+    party_state = []
+    for m in members:
+        party_state.append({
+            "player_id": m["player_id"],
+            "character_name": m["character_name"],
+            "class": m["class"],
+            "health": m["health"],
+            "max_health": m["max_health"],
+            "attack": m["attack"],
+            "defense": m["defense"],
+            "speed": m["speed"],
+            "healing_power": m.get("healing_power", 0),
+            "alive": m["health"] > 0,
+        })
+
+    # Turn order: highest speed first
+    turn_order = sorted([m["player_id"] for m in members], key=lambda pid: next(
+        (m["speed"] for m in members if m["player_id"] == pid), 0
+    ), reverse=True)
+
+    return {
+        "party_id": party_id,
+        "room_index": room_idx,
+        "room_type": room["type"],
+        "room_description": room["description"],
+        "is_boss": is_boss,
+        "room_cleared": False,
+        "enemies": enemies,
+        "party": party_state,
+        "turn_order": turn_order,
+        "current_turn_index": 0,
+        "players_acted_this_round": [],
+        "round": 1,
+        "log": [f"Entered: {room['description']}"],
+    }
+
+
+def _format_dungeon_status(run: Dict, dungeon_def: Dict) -> Dict:
+    state = run["combat_state"]
+    return {
+        "run_id": run["id"],
+        "dungeon": dungeon_def["name"],
+        "difficulty": dungeon_def["difficulty"],
+        "room": f"{run['current_room'] + 1}/{len(dungeon_def['rooms'])}",
+        "room_description": state["room_description"],
+        "room_type": state["room_type"],
+        "room_cleared": state["room_cleared"],
+        "round": state["round"],
+        "whose_turn": state["turn_order"][state["current_turn_index"]] if not state["room_cleared"] else None,
+        "enemies": [
+            {
+                "index": i,
+                "name": e["name"],
+                "health": max(0, e["health"]),
+                "max_health": e["max_health"],
+                "status": "defeated" if e["health"] <= 0 else "alive",
+            }
+            for i, e in enumerate(state["enemies"])
+        ],
+        "party": [
+            {
+                "player_id": m["player_id"],
+                "character_name": m["character_name"],
+                "class": m["class"],
+                "health": max(0, m["health"]),
+                "max_health": m["max_health"],
+                "alive": m["alive"],
+            }
+            for m in state["party"]
+        ],
+        "recent_log": state["log"][-5:],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Party endpoints
+# ---------------------------------------------------------------------------
+
+@app.post("/api/party/create")
+async def create_party(player_id: str = Depends(get_current_player)):
+    """Create a new party. You become the leader."""
+    character = db.get_active_character(player_id)
+    if not character:
+        raise HTTPException(status_code=404, detail="No active character")
+
+    existing = db.get_player_party(player_id)
+    if existing:
+        raise HTTPException(status_code=400, detail="You are already in a party. Leave it first.")
+
+    party_id = db.create_party(player_id)
+    db.remove_lfg_post(player_id)
+    return {
+        "message": "Party created",
+        "party_id": party_id,
+        "leader": character["name"],
+        "tip": "Invite others with POST /api/party/invite/{their_player_id}",
+    }
+
+
+@app.post("/api/party/invite/{target_player_id}")
+async def invite_to_party(target_player_id: str, player_id: str = Depends(get_current_player)):
+    """Invite another player to your party (leader only)."""
+    party = db.get_player_party(player_id)
+    if not party:
+        raise HTTPException(status_code=400, detail="You are not in a party")
+    if party["leader_id"] != player_id:
+        raise HTTPException(status_code=403, detail="Only the party leader can invite")
+    if party["status"] == "in_dungeon":
+        raise HTTPException(status_code=400, detail="Cannot invite while in a dungeon")
+
+    count = db.get_party_member_count(party["id"])
+    if count >= party["max_size"]:
+        raise HTTPException(status_code=400, detail="Party is full")
+
+    # Check target exists and is not already in a party
+    target_char = db.get_active_character(target_player_id)
+    if not target_char:
+        raise HTTPException(status_code=404, detail="Target player not found")
+    if db.get_player_party(target_player_id):
+        raise HTTPException(status_code=400, detail="That player is already in a party")
+
+    invite_id = db.create_party_invite(party["id"], player_id, target_player_id)
+    return {
+        "message": f"Invite sent to {target_char['name']}",
+        "invite_id": invite_id,
+        "tip": "They must accept with POST /api/party/accept/{invite_id}",
+    }
+
+
+@app.get("/api/party/invites")
+async def get_party_invites(player_id: str = Depends(get_current_player)):
+    """See your pending party invites."""
+    invites = db.get_pending_invites(player_id)
+    return {"invites": invites, "count": len(invites)}
+
+
+@app.post("/api/party/accept/{invite_id}")
+async def accept_party_invite(invite_id: int, player_id: str = Depends(get_current_player)):
+    """Accept a party invite."""
+    success, message, party_id = db.respond_to_invite(invite_id, player_id, accept=True)
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+    db.remove_lfg_post(player_id)
+    members = db.get_party_members(party_id)
+    return {"message": message, "party_id": party_id, "party_size": len(members)}
+
+
+@app.post("/api/party/decline/{invite_id}")
+async def decline_party_invite(invite_id: int, player_id: str = Depends(get_current_player)):
+    """Decline a party invite."""
+    success, message, _ = db.respond_to_invite(invite_id, player_id, accept=False)
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+    return {"message": message}
+
+
+@app.get("/api/party/status")
+async def get_party_status(player_id: str = Depends(get_current_player)):
+    """Get your current party roster and status."""
+    party = db.get_player_party(player_id)
+    if not party:
+        raise HTTPException(status_code=404, detail="You are not in a party")
+
+    members = db.get_party_members(party["id"])
+    active_run = db.get_active_dungeon_run(party["id"])
+
+    return {
+        "party_id": party["id"],
+        "status": party["status"],
+        "leader_id": party["leader_id"],
+        "size": len(members),
+        "max_size": party["max_size"],
+        "members": [
+            {
+                "player_id": m["player_id"],
+                "character_name": m["character_name"],
+                "class": m["class"],
+                "level": m["level"],
+                "health": m["health"],
+                "max_health": m["max_health"],
+                "is_leader": m["is_leader"],
+            }
+            for m in members
+        ],
+        "in_dungeon": active_run is not None,
+        "dungeon_id": active_run["dungeon_id"] if active_run else None,
+    }
+
+
+@app.post("/api/party/leave")
+async def leave_party(player_id: str = Depends(get_current_player)):
+    """Leave your current party."""
+    party = db.get_player_party(player_id)
+    if not party:
+        raise HTTPException(status_code=404, detail="You are not in a party")
+    if party["status"] == "in_dungeon":
+        raise HTTPException(status_code=400, detail="Cannot leave while in a dungeon. Use /api/dungeon/flee first.")
+
+    party_id = party["id"]
+    db.remove_party_member(party_id, player_id)
+
+    remaining = db.get_party_member_count(party_id)
+    if remaining == 0:
+        db.disband_party(party_id)
+    elif party["leader_id"] == player_id:
+        # Transfer leadership to first remaining member
+        members = db.get_party_members(party_id)
+        if members:
+            db.transfer_party_leadership(party_id, members[0]["player_id"])
+
+    return {"message": "Left party"}
+
+
+@app.post("/api/party/kick/{target_player_id}")
+async def kick_from_party(target_player_id: str, player_id: str = Depends(get_current_player)):
+    """Kick a player from the party (leader only)."""
+    party = db.get_player_party(player_id)
+    if not party:
+        raise HTTPException(status_code=400, detail="You are not in a party")
+    if party["leader_id"] != player_id:
+        raise HTTPException(status_code=403, detail="Only the leader can kick")
+    if target_player_id == player_id:
+        raise HTTPException(status_code=400, detail="Cannot kick yourself. Use /api/party/leave.")
+    if party["status"] == "in_dungeon":
+        raise HTTPException(status_code=400, detail="Cannot kick while in a dungeon")
+
+    db.remove_party_member(party["id"], target_player_id)
+    return {"message": "Player kicked from party"}
+
+
+# ---------------------------------------------------------------------------
+# Dungeon endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/dungeons")
+async def list_dungeons(player_id: str = Depends(get_current_player)):
+    """List all available dungeons with requirements and your lockout status."""
+    lockouts = {l["dungeon_id"]: l["locked_until"] for l in db.get_player_lockouts(player_id)}
+    result = []
+    for ddef in DUNGEON_DEFINITIONS.values():
+        result.append({
+            "id": ddef["id"],
+            "name": ddef["name"],
+            "difficulty": ddef["difficulty"],
+            "min_players": ddef["min_players"],
+            "max_players": ddef["max_players"],
+            "min_level": ddef["min_level"],
+            "description": ddef["description"],
+            "rooms": len(ddef["rooms"]),
+            "lockout_hours": ddef["lockout_hours"],
+            "locked_until": lockouts.get(ddef["id"]),
+            "gear_tier": {
+                "normal": "Rare / Epic (boss)",
+                "hard": "Epic / Legendary (boss)",
+                "legendary": "Legendary guaranteed",
+            }.get(ddef["difficulty"]),
+        })
+    return {"dungeons": result}
+
+
+@app.post("/api/dungeon/enter/{dungeon_id}")
+async def enter_dungeon(dungeon_id: str, player_id: str = Depends(get_current_player)):
+    """Enter a dungeon with your party. Party leader initiates."""
+    dungeon_def = DUNGEON_DEFINITIONS.get(dungeon_id)
+    if not dungeon_def:
+        raise HTTPException(status_code=404, detail="Unknown dungeon")
+
+    # Must be in a party
+    party = db.get_player_party(player_id)
+    if not party:
+        raise HTTPException(status_code=400, detail="You must be in a party to enter a dungeon")
+    if party["leader_id"] != player_id:
+        raise HTTPException(status_code=403, detail="Only the party leader can enter a dungeon")
+    if party["status"] == "in_dungeon":
+        raise HTTPException(status_code=400, detail="Party is already in a dungeon")
+
+    members = db.get_party_members(party["id"])
+    size = len(members)
+
+    if size < dungeon_def["min_players"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{dungeon_def['name']} requires at least {dungeon_def['min_players']} players. You have {size}."
+        )
+
+    # Check all members meet level requirement
+    below_level = [m for m in members if m["level"] < dungeon_def["min_level"]]
+    if below_level:
+        names = ", ".join(m["character_name"] for m in below_level)
+        raise HTTPException(
+            status_code=400,
+            detail=f"These members are below level {dungeon_def['min_level']}: {names}"
+        )
+
+    # Check lockouts for all members
+    locked = [m for m in members if db.check_dungeon_lockout(m["player_id"], dungeon_id)]
+    if locked:
+        names = ", ".join(m["character_name"] for m in locked)
+        raise HTTPException(status_code=400, detail=f"These members are on lockout: {names}")
+
+    # Build room 0 combat state
+    initial_state = _build_dungeon_room_state(dungeon_def, 0, members, party["id"])
+    run_id = db.create_dungeon_run(dungeon_id, party["id"], initial_state)
+
+    run = db.get_active_dungeon_run(party["id"])
+    return {
+        "message": f"Entered {dungeon_def['name']}!",
+        "run_id": run_id,
+        "dungeon": _format_dungeon_status(run, dungeon_def),
+        "tip": "Each party member attacks with POST /api/dungeon/attack. Check whose turn with GET /api/dungeon/status.",
+    }
+
+
+@app.get("/api/dungeon/status")
+async def get_dungeon_status(player_id: str = Depends(get_current_player)):
+    """Get the current state of your party's dungeon run."""
+    party = db.get_player_party(player_id)
+    if not party:
+        raise HTTPException(status_code=404, detail="You are not in a party")
+
+    run = db.get_active_dungeon_run(party["id"])
+    if not run:
+        raise HTTPException(status_code=404, detail="Your party is not in a dungeon")
+
+    dungeon_def = DUNGEON_DEFINITIONS[run["dungeon_id"]]
+    return _format_dungeon_status(run, dungeon_def)
+
+
+@app.post("/api/dungeon/attack")
+async def dungeon_attack(request: DungeonAttackRequest, player_id: str = Depends(get_current_player)):
+    """Attack an enemy in the current dungeon room. Must be your turn."""
+    party = db.get_player_party(player_id)
+    if not party:
+        raise HTTPException(status_code=404, detail="You are not in a party")
+
+    run = db.get_active_dungeon_run(party["id"])
+    if not run:
+        raise HTTPException(status_code=404, detail="Your party is not in a dungeon")
+
+    state = run["combat_state"]
+    dungeon_def = DUNGEON_DEFINITIONS[run["dungeon_id"]]
+
+    if state["room_cleared"]:
+        raise HTTPException(status_code=400, detail="Room is cleared. Advance with POST /api/dungeon/advance")
+
+    # Check turn
+    current_turn_player = state["turn_order"][state["current_turn_index"]]
+    if current_turn_player != player_id:
+        whose = next((m["character_name"] for m in state["party"] if m["player_id"] == current_turn_player), "unknown")
+        raise HTTPException(status_code=400, detail=f"Not your turn. Waiting for {whose}.")
+
+    # Find this player in party state
+    actor = next((m for m in state["party"] if m["player_id"] == player_id), None)
+    if not actor or not actor["alive"]:
+        raise HTTPException(status_code=400, detail="Your character is defeated")
+
+    # Validate target
+    if request.target >= len(state["enemies"]):
+        raise HTTPException(status_code=400, detail="Invalid target index")
+    enemy = state["enemies"][request.target]
+    if enemy["health"] <= 0:
+        raise HTTPException(status_code=400, detail="That enemy is already defeated. Pick another target.")
+
+    # Get character for equipment bonuses
+    character = db.get_active_character(player_id)
+    item_db = db.get_item_database()
+    attack_power = actor["attack"]
+    for slot in ("weapon", "armor", "helmet", "boots", "accessory"):
+        item_id = character["equipment"].get(slot)
+        if item_id:
+            attack_power += item_db.get(item_id, {}).get("attack", 0)
+
+    crit_chance = character.get("critical_chance", 0.15)
+    crit = random.random() < crit_chance
+    base_damage = max(1, attack_power - enemy["defense"])
+    damage = int(base_damage * random.uniform(0.85, 1.15) * (1.5 if crit else 1.0))
+    enemy["health"] -= damage
+
+    log = f"{actor['character_name']} attacks {enemy['name']}!{' CRITICAL!' if crit else ''} (-{damage} HP)"
+    if enemy["health"] <= 0:
+        log += f" {enemy['name']} is defeated!"
+    state["log"].append(log)
+
+    # Mark this player as having acted
+    if player_id not in state["players_acted_this_round"]:
+        state["players_acted_this_round"].append(player_id)
+
+    # Advance turn to next alive player
+    alive_players = [pid for pid in state["turn_order"]
+                     if any(m["player_id"] == pid and m["alive"] for m in state["party"])]
+
+    if alive_players:
+        next_idx = (state["current_turn_index"] + 1) % len(state["turn_order"])
+        # Skip dead players
+        attempts = 0
+        while state["turn_order"][next_idx] not in alive_players and attempts < len(state["turn_order"]):
+            next_idx = (next_idx + 1) % len(state["turn_order"])
+            attempts += 1
+        state["current_turn_index"] = next_idx
+
+    # Check if all alive players have acted this round → enemies attack
+    acted_alive = [pid for pid in state["players_acted_this_round"] if pid in alive_players]
+    if set(acted_alive) >= set(alive_players):
+        # Enemies attack all living party members
+        living_enemies = [e for e in state["enemies"] if e["health"] > 0]
+        for m in state["party"]:
+            if not m["alive"]:
+                continue
+            char = db.get_active_character(m["player_id"])
+            def_power = m["defense"]
+            if char:
+                for slot in ("armor", "helmet", "boots", "accessory"):
+                    item_id = char["equipment"].get(slot)
+                    if item_id:
+                        def_power += item_db.get(item_id, {}).get("defense", 0)
+            for e in living_enemies:
+                dmg = max(1, int((e["attack"] - def_power) * random.uniform(0.85, 1.15)))
+                m["health"] -= dmg
+                state["log"].append(f"{e['name']} attacks {m['character_name']}! (-{dmg} HP)")
+                if m["health"] <= 0:
+                    m["alive"] = False
+                    state["log"].append(f"{m['character_name']} has been defeated!")
+
+        state["players_acted_this_round"] = []
+        state["round"] += 1
+        state["current_turn_index"] = 0
+
+    # Persist HP changes to character records
+    for m in state["party"]:
+        char = db.get_active_character(m["player_id"])
+        if char:
+            char["health"] = max(0, m["health"])
+            db.update_character(m["player_id"], char)
+
+    # Check outcomes
+    all_enemies_dead = all(e["health"] <= 0 for e in state["enemies"])
+    all_party_dead = all(not m["alive"] for m in state["party"])
+
+    if all_party_dead:
+        db.update_dungeon_run(run["id"], run["current_room"], state)
+        db.complete_dungeon_run(run["id"], party["id"], "failed")
+        return {"result": "defeat", "message": "Your entire party has been defeated.", "log": state["log"][-10:]}
+
+    if all_enemies_dead:
+        state["room_cleared"] = True
+        total_rooms = len(dungeon_def["rooms"])
+        is_last_room = (run["current_room"] >= total_rooms - 1)
+
+        if is_last_room:
+            # Dungeon complete — distribute loot and set lockouts
+            loot_per_player = {}
+            for m in state["party"]:
+                if m["alive"]:
+                    loot = db.get_dungeon_loot(dungeon_def["boss_loot_table"], run["dungeon_id"])
+                    loot_per_player[m["player_id"]] = loot
+                    if loot:
+                        char = db.get_active_character(m["player_id"])
+                        if char:
+                            char["inventory"].append(loot)
+                            db.update_character(m["player_id"], char)
+                    db.set_dungeon_lockout(m["player_id"], run["dungeon_id"], dungeon_def["lockout_hours"])
+
+            db.update_dungeon_run(run["id"], run["current_room"], state)
+            db.complete_dungeon_run(run["id"], party["id"], "completed")
+            item_db_ref = db.get_item_database()
+            return {
+                "result": "victory",
+                "message": f"{dungeon_def['name']} cleared!",
+                "loot": {
+                    pid: item_db_ref.get(iid, {}).get("name", iid) if iid else "No drop"
+                    for pid, iid in loot_per_player.items()
+                },
+                "lockout_hours": dungeon_def["lockout_hours"],
+                "log": state["log"][-10:],
+            }
+        else:
+            state["log"].append(f"Room {run['current_room'] + 1} cleared! Advance with POST /api/dungeon/advance")
+            db.update_dungeon_run(run["id"], run["current_room"], state)
+            # Drop loot for cleared mob room
+            loot_drops = []
+            for m in state["party"]:
+                if m["alive"]:
+                    loot = db.get_dungeon_loot(dungeon_def["loot_table"], run["dungeon_id"])
+                    if loot:
+                        loot_drops.append(loot)
+                        char = db.get_active_character(m["player_id"])
+                        if char:
+                            char["inventory"].append(loot)
+                            db.update_character(m["player_id"], char)
+            item_db_ref = db.get_item_database()
+            return {
+                "result": "room_cleared",
+                "message": f"Room {run['current_room'] + 1} cleared!",
+                "loot_dropped": [item_db_ref.get(l, {}).get("name", l) for l in loot_drops],
+                "next_room": run["current_room"] + 2,
+                "total_rooms": total_rooms,
+                "log": state["log"][-10:],
+                "tip": "All members advance with POST /api/dungeon/advance",
+            }
+
+    db.update_dungeon_run(run["id"], run["current_room"], state)
+    return _format_dungeon_status(run, dungeon_def)
+
+
+@app.post("/api/dungeon/heal")
+async def dungeon_heal(request: DungeonHealRequest, player_id: str = Depends(get_current_player)):
+    """Clerics only: heal a party member instead of attacking. Uses your turn."""
+    party = db.get_player_party(player_id)
+    if not party:
+        raise HTTPException(status_code=404, detail="You are not in a party")
+
+    run = db.get_active_dungeon_run(party["id"])
+    if not run:
+        raise HTTPException(status_code=404, detail="Your party is not in a dungeon")
+
+    state = run["combat_state"]
+    dungeon_def = DUNGEON_DEFINITIONS[run["dungeon_id"]]
+
+    if state["room_cleared"]:
+        raise HTTPException(status_code=400, detail="Room is cleared. Advance with POST /api/dungeon/advance")
+
+    current_turn_player = state["turn_order"][state["current_turn_index"]]
+    if current_turn_player != player_id:
+        raise HTTPException(status_code=400, detail="Not your turn")
+
+    character = db.get_active_character(player_id)
+    if not character:
+        raise HTTPException(status_code=404, detail="No active character")
+    if character["class"] != "cleric":
+        raise HTTPException(status_code=400, detail="Only clerics can heal")
+
+    actor = next((m for m in state["party"] if m["player_id"] == player_id), None)
+    if not actor or not actor["alive"]:
+        raise HTTPException(status_code=400, detail="Your character is defeated")
+
+    target = next((m for m in state["party"] if m["player_id"] == request.target_player_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Target not found in party")
+    if not target["alive"]:
+        raise HTTPException(status_code=400, detail="Cannot heal a defeated player")
+
+    heal_amount = max(10, int((character.get("healing_power", 10) + 10) * random.uniform(0.9, 1.1)))
+    target["health"] = min(target["max_health"], target["health"] + heal_amount)
+
+    # Persist
+    target_char = db.get_active_character(request.target_player_id)
+    if target_char:
+        target_char["health"] = target["health"]
+        db.update_character(request.target_player_id, target_char)
+
+    state["log"].append(f"{actor['character_name']} heals {target['character_name']} for {heal_amount} HP!")
+
+    # Advance turn (same logic as attack)
+    alive_players = [pid for pid in state["turn_order"]
+                     if any(m["player_id"] == pid and m["alive"] for m in state["party"])]
+    if player_id not in state["players_acted_this_round"]:
+        state["players_acted_this_round"].append(player_id)
+
+    next_idx = (state["current_turn_index"] + 1) % len(state["turn_order"])
+    attempts = 0
+    while state["turn_order"][next_idx] not in alive_players and attempts < len(state["turn_order"]):
+        next_idx = (next_idx + 1) % len(state["turn_order"])
+        attempts += 1
+    state["current_turn_index"] = next_idx
+
+    acted_alive = [pid for pid in state["players_acted_this_round"] if pid in alive_players]
+    if set(acted_alive) >= set(alive_players):
+        # Enemy retaliation round
+        item_db = db.get_item_database()
+        living_enemies = [e for e in state["enemies"] if e["health"] > 0]
+        for m in state["party"]:
+            if not m["alive"]:
+                continue
+            char = db.get_active_character(m["player_id"])
+            def_power = m["defense"]
+            if char:
+                for slot in ("armor", "helmet", "boots", "accessory"):
+                    item_id = char["equipment"].get(slot)
+                    if item_id:
+                        def_power += item_db.get(item_id, {}).get("defense", 0)
+            for e in living_enemies:
+                dmg = max(1, int((e["attack"] - def_power) * random.uniform(0.85, 1.15)))
+                m["health"] -= dmg
+                state["log"].append(f"{e['name']} attacks {m['character_name']}! (-{dmg} HP)")
+                if m["health"] <= 0:
+                    m["alive"] = False
+                    state["log"].append(f"{m['character_name']} has been defeated!")
+        state["players_acted_this_round"] = []
+        state["round"] += 1
+        state["current_turn_index"] = 0
+
+    db.update_dungeon_run(run["id"], run["current_room"], state)
+    return _format_dungeon_status(run, dungeon_def)
+
+
+@app.post("/api/dungeon/advance")
+async def dungeon_advance(player_id: str = Depends(get_current_player)):
+    """Advance to the next room after clearing the current one."""
+    party = db.get_player_party(player_id)
+    if not party:
+        raise HTTPException(status_code=404, detail="You are not in a party")
+
+    run = db.get_active_dungeon_run(party["id"])
+    if not run:
+        raise HTTPException(status_code=404, detail="Your party is not in a dungeon")
+
+    state = run["combat_state"]
+    dungeon_def = DUNGEON_DEFINITIONS[run["dungeon_id"]]
+
+    if not state["room_cleared"]:
+        raise HTTPException(status_code=400, detail="Room not cleared yet — defeat all enemies first")
+
+    next_room = run["current_room"] + 1
+    if next_room >= len(dungeon_def["rooms"]):
+        raise HTTPException(status_code=400, detail="Already in the final room")
+
+    # Build next room using current party HP from state
+    members_snapshot = state["party"]
+    next_state = _build_dungeon_room_state(dungeon_def, next_room, [
+        {
+            "player_id": m["player_id"],
+            "character_name": m["character_name"],
+            "class": m["class"],
+            "health": m["health"],
+            "max_health": m["max_health"],
+            "attack": m["attack"],
+            "defense": m["defense"],
+            "speed": m["speed"],
+            "healing_power": m.get("healing_power", 0),
+            "alive": m["alive"],
+            "level": 1,  # used only for avg level calc; will use existing state
+        }
+        for m in members_snapshot if m["alive"]
+    ], party["id"])
+
+    # Carry over dead members (they stay dead)
+    for m in members_snapshot:
+        if not m["alive"]:
+            next_state["party"].append(m)
+            if m["player_id"] in next_state["turn_order"]:
+                next_state["turn_order"].remove(m["player_id"])
+
+    db.update_dungeon_run(run["id"], next_room, next_state)
+    run["current_room"] = next_room
+    run["combat_state"] = next_state
+    return _format_dungeon_status(run, dungeon_def)
+
+
+@app.post("/api/dungeon/flee")
+async def dungeon_flee(player_id: str = Depends(get_current_player)):
+    """Flee the dungeon. Party loses all progress and loot. No lockout applied."""
+    party = db.get_player_party(player_id)
+    if not party:
+        raise HTTPException(status_code=404, detail="You are not in a party")
+    if party["leader_id"] != player_id:
+        raise HTTPException(status_code=403, detail="Only the leader can call a retreat")
+
+    run = db.get_active_dungeon_run(party["id"])
+    if not run:
+        raise HTTPException(status_code=404, detail="Your party is not in a dungeon")
+
+    dungeon_def = DUNGEON_DEFINITIONS[run["dungeon_id"]]
+    db.complete_dungeon_run(run["id"], party["id"], "fled")
+    return {"message": f"Your party fled {dungeon_def['name']}. No lockout applied but all progress lost."}
+
+
+@app.get("/api/dungeon/lockouts")
+async def get_dungeon_lockouts(player_id: str = Depends(get_current_player)):
+    """See your current dungeon lockouts."""
+    lockouts = db.get_player_lockouts(player_id)
+    return {
+        "lockouts": [
+            {
+                "dungeon_id": l["dungeon_id"],
+                "dungeon_name": DUNGEON_DEFINITIONS.get(l["dungeon_id"], {}).get("name", l["dungeon_id"]),
+                "locked_until": l["locked_until"],
+            }
+            for l in lockouts
+        ]
+    }
+
+
+# ---------------------------------------------------------------------------
+# LFG endpoints
+# ---------------------------------------------------------------------------
+
+@app.post("/api/lfg/post")
+async def post_lfg(request: LFGPostRequest, player_id: str = Depends(get_current_player)):
+    """Post a Looking For Group listing. Expires in 30 minutes. Auto-removed when you join a party."""
+    character = db.get_active_character(player_id)
+    if not character:
+        raise HTTPException(status_code=404, detail="No active character")
+
+    if request.dungeon_id and request.dungeon_id not in DUNGEON_DEFINITIONS:
+        raise HTTPException(status_code=400, detail="Unknown dungeon_id")
+
+    post_id = db.post_lfg(
+        player_id, character["name"], character["class"], character["level"],
+        request.dungeon_id, request.role, request.message
+    )
+    return {
+        "message": "LFG post created",
+        "post_id": post_id,
+        "expires_in_minutes": 30,
+        "tip": "Others can see your post with GET /api/lfg",
+    }
+
+
+@app.get("/api/lfg")
+async def get_lfg(dungeon_id: Optional[str] = None):
+    """Browse Looking For Group posts. Filter by dungeon_id optionally."""
+    posts = db.get_lfg_posts(dungeon_id)
+    return {
+        "posts": posts,
+        "count": len(posts),
+        "tip": "Invite someone from LFG with POST /api/party/invite/{their_player_id}",
+    }
+
+
+@app.delete("/api/lfg")
+async def remove_lfg_post(player_id: str = Depends(get_current_player)):
+    """Remove your LFG post."""
+    db.remove_lfg_post(player_id)
+    return {"message": "LFG post removed"}
 
 
 if __name__ == "__main__":

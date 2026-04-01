@@ -372,6 +372,153 @@
       "speed": 5,
       "value": 900,
       "description": "Woven from the fabric of reality itself."
+    },
+
+    "_comment_dungeon": "--- DUNGEON-ONLY ITEMS: require party content to obtain ---",
+
+    "dungeon_ironveil_plate": {
+      "name": "Ironveil Plate",
+      "type": "armor",
+      "slot": "armor",
+      "rarity": "rare",
+      "dungeon_only": true,
+      "dungeon": "goblin_warren",
+      "defense": 9,
+      "health": 15,
+      "value": 120,
+      "description": "Forged from iron veiled in goblin magic. (Goblin Warren drop)"
+    },
+    "dungeon_venomstrike": {
+      "name": "Venomstrike Blade",
+      "type": "weapon",
+      "rarity": "rare",
+      "dungeon_only": true,
+      "dungeon": "goblin_warren",
+      "attack": 12,
+      "critical_chance": 0.03,
+      "value": 130,
+      "description": "A blade dripping with spider venom. (Goblin Warren drop)"
+    },
+    "dungeon_spiderfang_staff": {
+      "name": "Spiderfang Staff",
+      "type": "weapon",
+      "rarity": "rare",
+      "dungeon_only": true,
+      "dungeon": "goblin_warren",
+      "attack": 9,
+      "magic": 8,
+      "value": 125,
+      "description": "A staff tipped with giant spider fangs. (Goblin Warren drop)"
+    },
+    "dungeon_gruk_signet": {
+      "name": "Gruk's Signet",
+      "type": "armor",
+      "slot": "accessory",
+      "rarity": "rare",
+      "dungeon_only": true,
+      "dungeon": "goblin_warren",
+      "attack": 3,
+      "defense": 2,
+      "value": 110,
+      "description": "The ring of Goblin King Gruk. (Goblin Warren boss drop)"
+    },
+    "dungeon_lich_crown": {
+      "name": "Lich Lord's Crown",
+      "type": "armor",
+      "slot": "helmet",
+      "rarity": "epic",
+      "dungeon_only": true,
+      "dungeon": "skeleton_crypt",
+      "defense": 7,
+      "magic": 12,
+      "mana": 40,
+      "value": 400,
+      "description": "Torn from the skull of Malgrath the Lich Lord. (Skeleton Crypt drop)"
+    },
+    "dungeon_bonecrusher": {
+      "name": "Bonecrusher Maul",
+      "type": "weapon",
+      "rarity": "epic",
+      "dungeon_only": true,
+      "dungeon": "skeleton_crypt",
+      "attack": 18,
+      "defense": 3,
+      "value": 380,
+      "description": "A massive weapon forged from ancient bones. (Skeleton Crypt drop)"
+    },
+    "dungeon_spectral_robes": {
+      "name": "Spectral Robes",
+      "type": "armor",
+      "slot": "armor",
+      "rarity": "epic",
+      "dungeon_only": true,
+      "dungeon": "skeleton_crypt",
+      "defense": 10,
+      "magic": 14,
+      "mana": 25,
+      "value": 420,
+      "description": "Woven from the essence of undead spirits. (Skeleton Crypt drop)"
+    },
+    "dungeon_crypt_boots": {
+      "name": "Crypt Walker Boots",
+      "type": "armor",
+      "slot": "boots",
+      "rarity": "epic",
+      "dungeon_only": true,
+      "dungeon": "skeleton_crypt",
+      "defense": 4,
+      "speed": 10,
+      "value": 360,
+      "description": "Boots that let you walk silently among the dead. (Skeleton Crypt drop)"
+    },
+    "dungeon_ignis_fang": {
+      "name": "Ignis Fang",
+      "type": "weapon",
+      "rarity": "legendary",
+      "dungeon_only": true,
+      "dungeon": "dragons_lair",
+      "attack": 30,
+      "fire_damage": 15,
+      "critical_chance": 0.08,
+      "value": 1500,
+      "description": "Carved from the tooth of Ignis the Ancient. (Dragon's Lair drop)"
+    },
+    "dungeon_dragonkin_armor": {
+      "name": "Dragonkin Armor",
+      "type": "armor",
+      "slot": "armor",
+      "rarity": "legendary",
+      "dungeon_only": true,
+      "dungeon": "dragons_lair",
+      "defense": 20,
+      "health": 80,
+      "value": 1800,
+      "description": "Armor forged from the scales of Ignis himself. (Dragon's Lair drop)"
+    },
+    "dungeon_flame_crown": {
+      "name": "Crown of the Dragon",
+      "type": "armor",
+      "slot": "helmet",
+      "rarity": "legendary",
+      "dungeon_only": true,
+      "dungeon": "dragons_lair",
+      "defense": 10,
+      "magic": 20,
+      "attack": 5,
+      "value": 1600,
+      "description": "The horned crown worn by Ignis in his humanoid form. (Dragon's Lair drop)"
+    },
+    "dungeon_ember_boots": {
+      "name": "Ember-Forged Boots",
+      "type": "armor",
+      "slot": "boots",
+      "rarity": "legendary",
+      "dungeon_only": true,
+      "dungeon": "dragons_lair",
+      "defense": 8,
+      "speed": 12,
+      "value": 1400,
+      "description": "Boots forged in dragonfire that never burn their wearer. (Dragon's Lair drop)"
     }
   },
 
@@ -384,18 +531,51 @@
       "epic": 0.0
     },
     "hard_mobs": {
-      "description": "Skeletons, wolves, orcs",
+      "description": "Skeletons, wolves, orcs - Rare is the solo content ceiling",
       "common": 0.40,
       "uncommon": 0.40,
-      "rare": 0.18,
-      "epic": 0.02
+      "rare": 0.20,
+      "epic": 0.0
     },
     "bosses": {
-      "description": "Boss enemies - guaranteed rare+",
+      "description": "Solo boss enemies - guaranteed rare+",
       "common": 0.0,
       "uncommon": 0.0,
       "rare": 0.80,
       "epic": 0.20
+    },
+    "dungeon_normal": {
+      "description": "Goblin Warren mob rooms (2+ players required)",
+      "uncommon": 0.20,
+      "rare": 0.65,
+      "epic": 0.15,
+      "legendary": 0.0
+    },
+    "dungeon_normal_boss": {
+      "description": "Goblin Warren boss room",
+      "rare": 0.60,
+      "epic": 0.35,
+      "legendary": 0.05
+    },
+    "dungeon_hard": {
+      "description": "Skeleton Crypt mob rooms (3+ players required)",
+      "rare": 0.30,
+      "epic": 0.60,
+      "legendary": 0.10
+    },
+    "dungeon_hard_boss": {
+      "description": "Skeleton Crypt boss room",
+      "epic": 0.65,
+      "legendary": 0.35
+    },
+    "dungeon_legendary": {
+      "description": "Dragon's Lair mob rooms (4 players required)",
+      "epic": 0.40,
+      "legendary": 0.60
+    },
+    "dungeon_legendary_boss": {
+      "description": "Dragon's Lair boss room - guaranteed legendary",
+      "legendary": 1.0
     }
   }
 }
