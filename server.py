@@ -7,6 +7,7 @@ import json
 import hashlib
 import random
 import secrets
+from collections import Counter
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict
 from contextlib import asynccontextmanager
@@ -234,7 +235,7 @@ async def serve_codex_page():
 async def serve_static(filename: str):
     """Serve static files (images, HTML) from project root"""
     import os
-    allowed_extensions = ('.png', '.jpg', '.jpeg', '.gif', '.ico', '.html', '.css', '.js')
+    allowed_extensions = ('.png', '.jpg', '.jpeg', '.gif', '.ico', '.html', '.css', '.js', '.md')
     if not filename.endswith(allowed_extensions):
         raise HTTPException(status_code=404, detail="Not found")
     filepath = os.path.join(os.path.dirname(__file__), filename)
@@ -251,6 +252,42 @@ def get_password_hash(password):
 
 def generate_api_key():
     return f"claw_{secrets.token_urlsafe(32)}"
+
+def build_next_actions(player_id: str, character: Dict) -> List[Dict]:
+    """Return a few concrete next steps for the current player."""
+    actions = []
+
+    if not db.get_player_active_quests(player_id):
+        has_completed_any_quest = bool(db.get_player_completed_quests(player_id))
+        actions.append({
+            "label": "Take another quest" if has_completed_any_quest else "Accept your first quest",
+            "method": "GET",
+            "endpoint": "/api/quests/available",
+        })
+
+    if character["level"] == 1 and db.get_player_location(player_id) is None:
+        faction_city = {
+            "iron_vanguard": "ironhold",
+            "arcane_council": "starweavers_spire",
+            "shadow_syndicate": "shadowmere",
+            "eternal_order": "sanctum_of_light",
+        }.get(character.get("faction"))
+        if faction_city:
+            actions.append({
+                "label": "Visit your faction city",
+                "method": "POST",
+                "endpoint": f"/api/city/enter/{faction_city}",
+            })
+
+    if not db.get_combat_state(player_id):
+        actions.append({
+            "label": "Start a beginner fight",
+            "method": "POST",
+            "endpoint": "/api/combat/start",
+            "payload": {"enemies": ["goblin"]},
+        })
+
+    return actions[:3]
 
 async def get_current_player(credentials: HTTPAuthorizationCredentials = Depends(security)):
     api_key = credentials.credentials
@@ -398,7 +435,8 @@ async def create_character(
             "defense": character['defense'],
             "speed": character['speed'],
             "critical_chance": f"{character['critical_chance']*100:.0f}%"
-        }
+        },
+        "next_actions": build_next_actions(player_id, character)
     }
 
 @app.get("/api/character/status")
@@ -435,15 +473,33 @@ async def get_character_status(player_id: str = Depends(get_current_player)):
     xp_bar = "█" * int(xp_pct / 10) + "░" * (10 - int(xp_pct / 10))
     tier = get_level_tier(character['level'])
     
-    # Get faction info
+    # Get faction info with bonuses
     faction_info = None
     if character.get('faction') and character['faction'] in FACTIONS:
         faction_data = FACTIONS[character['faction']]
+        bonuses = faction_data['bonuses']
+        bonus_desc = []
+        if 'health_percent' in bonuses:
+            bonus_desc.append(f"+{int(bonuses['health_percent']*100)}% HP")
+        if 'mana_percent' in bonuses:
+            bonus_desc.append(f"+{int(bonuses['mana_percent']*100)}% MP")
+        if 'defense_percent' in bonuses:
+            bonus_desc.append(f"+{int(bonuses['defense_percent']*100)}% DEF")
+        if 'speed_percent' in bonuses:
+            bonus_desc.append(f"+{int(bonuses['speed_percent']*100)}% SPD")
+        if 'magic_damage_percent' in bonuses:
+            bonus_desc.append(f"+{int(bonuses['magic_damage_percent']*100)}% Magic")
+        if 'healing_percent' in bonuses:
+            bonus_desc.append(f"+{int(bonuses['healing_percent']*100)}% Heal")
+        if 'critical_chance' in bonuses:
+            bonus_desc.append(f"+{int(bonuses['critical_chance']*100)}% Crit")
+        
         faction_info = {
             "id": character['faction'],
             "name": faction_data['name'],
             "description": faction_data['description'],
-            "color": faction_data['color']
+            "color": faction_data['color'],
+            "bonuses": bonus_desc
         }
     
     return {
@@ -471,7 +527,8 @@ async def get_character_status(player_id: str = Depends(get_current_player)):
             },
             "equipment": equipment_display,
             "inventory": [item_db.get(i, {}).get('name', i) for i in character['inventory']]
-        }
+        },
+        "next_actions": build_next_actions(player_id, character)
     }
 
 @app.get("/api/character/levelup-info")
@@ -914,6 +971,7 @@ async def enter_city(
     
     # Set player location
     db.set_player_location(player_id, city_id)
+    exploration_updates = db.update_exploration_quest_progress(player_id, city_id, city)
     
     # Get recent chat messages
     recent_chat = db.get_city_chat(city_id, limit=20)
@@ -951,7 +1009,8 @@ async def enter_city(
             }
             for n in notices[:5]
         ],
-        "system_message": f"{character['name']} has entered {city['name']}."
+        "system_message": f"{character['name']} has entered {city['name']}.",
+        "quest_updates": exploration_updates
     }
 
 @app.post("/api/city/leave")
@@ -1447,6 +1506,10 @@ async def complete_quest(
                 detail=f"Kill requirement not met: {current}/{needed}"
             )
 
+    elif quest['type'] == 'exploration':
+        if not progress.get('completed'):
+            raise HTTPException(status_code=400, detail="Exploration requirement not met yet")
+
     elif quest['type'] == 'delivery':
         required_items = requirements.get('items', {})
         for item_id, count in required_items.items():
@@ -1606,6 +1669,11 @@ async def get_codex():
 
     codex_entries = []
     for char in characters:
+        # Ensure equipment is a dict (handle legacy data stored as list)
+        equipment_data = char.get('equipment', {})
+        if isinstance(equipment_data, list):
+            equipment_data = {}
+
         # Check for custom portrait
         safe_name = "".join(c for c in char['name'] if c.isalnum() or c in '-_').lower()
         # Find portrait file matching this character
@@ -1620,8 +1688,43 @@ async def get_codex():
             portrait_url = f"/{DEFAULT_PORTRAITS.get(char['class'], 'warrior-class.png')}"
 
         # Get weapon name
-        weapon_id = char['equipment'].get('weapon')
+        weapon_id = equipment_data.get('weapon')
         weapon_name = item_db.get(weapon_id, {}).get('name', 'None') if weapon_id else 'None'
+
+        # Get full equipment with item details
+        equipment = {}
+        equipment_images = {}
+        for slot in ['weapon', 'armor', 'helmet', 'boots', 'accessory']:
+            item_id = equipment_data.get(slot)
+            if item_id:
+                item_info = item_db.get(item_id, {})
+                equipment[slot] = {
+                    'id': item_id,
+                    'name': item_info.get('name', 'Unknown'),
+                    'rarity': item_info.get('rarity', 'common'),
+                    'type': item_info.get('type', 'item')
+                }
+                equipment_images[slot] = f"/items/{item_id}.png"
+
+        # Get notable inventory items (best rarity)
+        notable_items = []
+        if char.get('inventory'):
+            inventory_counts = Counter(char['inventory'])
+            for item_id, quantity in inventory_counts.items():
+                item_info = item_db.get(item_id, {})
+                rarity = item_info.get('rarity', 'common')
+                if rarity in ['rare', 'epic', 'legendary']:
+                    notable_items.append({
+                        'id': item_id,
+                        'name': item_info.get('name', item_id),
+                        'rarity': rarity,
+                        'quantity': quantity,
+                        'image': f"/items/{item_id}.png"
+                    })
+        # Sort by rarity (legendary > epic > rare)
+        rarity_order = {'legendary': 0, 'epic': 1, 'rare': 2}
+        notable_items.sort(key=lambda x: rarity_order.get(x['rarity'], 99))
+        notable_items = notable_items[:6]  # Top 6 notable items
 
         codex_entries.append({
             "name": char['name'],
@@ -1634,6 +1737,9 @@ async def get_codex():
             "attack": char['attack'],
             "defense": char['defense'],
             "weapon": weapon_name,
+            "equipment": equipment,
+            "equipment_images": equipment_images,
+            "notable_items": notable_items,
             "created_at": char['created_at'],
             "has_custom_portrait": portrait_url.startswith("/portraits/")
         })
@@ -2508,172 +2614,6 @@ async def lfg_auto_match(request: LFGAutoMatchRequest, player_id: str = Depends(
         "next_step": f"POST /api/dungeon/enter/{request.dungeon_id} (leader only)",
         "tip": "If you are not the leader, poll GET /api/party/status and wait for the leader to enter.",
     }
-
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-# Auto-Match Queue System
-match_queue = {}  # dungeon_id -> list of waiting players
-
-class AutoMatchRequest(BaseModel):
-    dungeon_id: str
-    max_wait_minutes: Optional[int] = 5
-
-class LeaveQueueRequest(BaseModel):
-    dungeon_id: str
-
-@app.post("/api/lfg/auto-match")
-async def auto_match(
-    request: AutoMatchRequest,
-    player_id: str = Depends(get_current_player)
-):
-    """Join auto-match queue for dungeons. Forms party automatically when enough players."""
-    character = db.get_active_character(player_id)
-    if not character:
-        raise HTTPException(status_code=404, detail="No active character")
-    
-    dungeon_id = request.dungeon_id
-    max_wait = request.max_wait_minutes or 5
-    
-    # Check if dungeon exists
-    if dungeon_id not in DUNGEON_DEFINITIONS:
-        raise HTTPException(status_code=404, detail="Unknown dungeon")
-    
-    dungeon = DUNGEON_DEFINITIONS[dungeon_id]
-    
-    # Check level requirement
-    if character['level'] < dungeon['min_level']:
-        raise HTTPException(status_code=400, detail=f"Requires level {dungeon['min_level']}")
-    
-    # Check if already in party
-    existing_party = db.get_player_party(player_id)
-    if existing_party:
-        raise HTTPException(status_code=400, detail="Leave your current party first")
-    
-    # Initialize queue for this dungeon
-    if dungeon_id not in match_queue:
-        match_queue[dungeon_id] = []
-    
-    # Add player to queue
-    queue_entry = {
-        'player_id': player_id,
-        'character_name': character['name'],
-        'class': character['class'],
-        'level': character['level'],
-        'joined_at': datetime.now(),
-        'max_wait': max_wait
-    }
-    
-    # Remove if already in queue
-    match_queue[dungeon_id] = [p for p in match_queue[dungeon_id] if p['player_id'] != player_id]
-    match_queue[dungeon_id].append(queue_entry)
-    
-    # Try to form a party
-    min_players = dungeon['min_players']
-    max_players = dungeon['max_players']
-    
-    # Clean old entries
-    now = datetime.now()
-    match_queue[dungeon_id] = [
-        p for p in match_queue[dungeon_id] 
-        if (now - p['joined_at']).seconds < p['max_wait'] * 60
-    ]
-    
-    if len(match_queue[dungeon_id]) >= min_players:
-        # Form a party!
-        party_members = match_queue[dungeon_id][:max_players]
-        
-        # Create party with first player as leader
-        leader_id = party_members[0]['player_id']
-        party_id = db.create_party(leader_id)
-        
-        # Add other members
-        for member in party_members[1:]:
-            db.add_party_member(party_id, member['player_id'])
-        
-        # Clear formed members from queue
-        member_ids = {m['player_id'] for m in party_members}
-        match_queue[dungeon_id] = [
-            p for p in match_queue[dungeon_id] 
-            if p['player_id'] not in member_ids
-        ]
-        
-        # Set party dungeon target
-        db.set_party_dungeon_target(party_id, dungeon_id)
-        
-        return {
-            "success": True,
-            "matched": True,
-            "party_id": party_id,
-            "dungeon": dungeon['name'],
-            "members": [
-                {"name": m['character_name'], "class": m['class'], "level": m['level']}
-                for m in party_members
-            ],
-            "message": f"Party formed! {len(party_members)} players ready for {dungeon['name']}",
-            "next_step": "POST /api/dungeon/enter/{dungeon_id} to start"
-        }
-    
-    # Still waiting
-    position = len(match_queue[dungeon_id])
-    needed = min_players - position
-    
-    return {
-        "success": True,
-        "matched": False,
-        "position": position,
-        "waiting": position,
-        "needed": needed,
-        "dungeon": dungeon['name'],
-        "max_wait": max_wait,
-        "message": f"Waiting for {needed} more players... (Queue position: {position})"
-    }
-
-@app.get("/api/lfg/queue/{dungeon_id}")
-async def get_queue_status(
-    dungeon_id: str,
-    player_id: str = Depends(get_current_player)
-):
-    """Check auto-match queue status for a dungeon."""
-    if dungeon_id not in DUNGEON_DEFINITIONS:
-        raise HTTPException(status_code=404, detail="Unknown dungeon")
-    
-    queue = match_queue.get(dungeon_id, [])
-    
-    # Clean old entries
-    now = datetime.now()
-    queue = [p for p in queue if (now - p['joined_at']).seconds < p['max_wait'] * 60]
-    match_queue[dungeon_id] = queue
-    
-    dungeon = DUNGEON_DEFINITIONS[dungeon_id]
-    
-    return {
-        "dungeon": dungeon['name'],
-        "waiting": len(queue),
-        "needed": dungeon['min_players'],
-        "max": dungeon['max_players'],
-        "players": [
-            {"name": p['character_name'], "class": p['class'], "level": p['level']}
-            for p in queue
-        ]
-    }
-
-@app.post("/api/lfg/leave-queue")
-async def leave_queue(
-    request: LeaveQueueRequest,
-    player_id: str = Depends(get_current_player)
-):
-    """Leave auto-match queue."""
-    dungeon_id = request.dungeon_id
-    
-    if dungeon_id in match_queue:
-        match_queue[dungeon_id] = [
-            p for p in match_queue[dungeon_id] 
-            if p['player_id'] != player_id
-        ]
-    
-    return {"success": True, "message": "Left queue"}
 # Player lookup endpoint
 @app.get("/api/players/lookup/{character_name}")
 async def lookup_player(character_name: str, player_id: str = Depends(get_current_player)):
@@ -2682,3 +2622,21 @@ async def lookup_player(character_name: str, player_id: str = Depends(get_curren
     if not target_id:
         raise HTTPException(status_code=404, detail="Character not found")
     return {"player_id": target_id, "character_name": character_name}
+
+# Items static file serving
+ITEMS_DIR = os.path.join(os.path.dirname(__file__), "items", "assets")
+
+@app.get("/items/{filename}", include_in_schema=False)
+async def serve_item_image(filename: str):
+    """Serve item images from items/assets directory"""
+    if not filename.endswith(".png"):
+        raise HTTPException(status_code=404, detail="Not found")
+    filepath = os.path.join(ITEMS_DIR, filename)
+    if not os.path.isfile(filepath):
+        raise HTTPException(status_code=404, detail="Item image not found")
+    return FileResponse(filepath)
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)
