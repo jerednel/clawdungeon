@@ -1701,8 +1701,9 @@ def _build_dungeon_room_state(dungeon_def: Dict, room_idx: int, members: List[Di
     }
 
 
-def _format_dungeon_status(run: Dict, dungeon_def: Dict) -> Dict:
+def _format_dungeon_status(run: Dict, dungeon_def: Dict, viewer_id: str = None) -> Dict:
     state = run["combat_state"]
+    whose_turn = state["turn_order"][state["current_turn_index"]] if not state["room_cleared"] else None
     return {
         "run_id": run["id"],
         "dungeon": dungeon_def["name"],
@@ -1712,7 +1713,8 @@ def _format_dungeon_status(run: Dict, dungeon_def: Dict) -> Dict:
         "room_type": state["room_type"],
         "room_cleared": state["room_cleared"],
         "round": state["round"],
-        "whose_turn": state["turn_order"][state["current_turn_index"]] if not state["room_cleared"] else None,
+        "whose_turn": whose_turn,
+        "is_your_turn": (str(whose_turn) == str(viewer_id)) if (whose_turn is not None and viewer_id is not None) else None,
         "enemies": [
             {
                 "index": i,
@@ -1972,7 +1974,7 @@ async def enter_dungeon(dungeon_id: str, player_id: str = Depends(get_current_pl
     return {
         "message": f"Entered {dungeon_def['name']}!",
         "run_id": run_id,
-        "dungeon": _format_dungeon_status(run, dungeon_def),
+        "dungeon": _format_dungeon_status(run, dungeon_def, player_id),
         "tip": "Each party member attacks with POST /api/dungeon/attack. Check whose turn with GET /api/dungeon/status.",
     }
 
@@ -1989,7 +1991,7 @@ async def get_dungeon_status(player_id: str = Depends(get_current_player)):
         raise HTTPException(status_code=404, detail="Your party is not in a dungeon")
 
     dungeon_def = DUNGEON_DEFINITIONS[run["dungeon_id"]]
-    return _format_dungeon_status(run, dungeon_def)
+    return _format_dungeon_status(run, dungeon_def, player_id)
 
 
 @app.post("/api/dungeon/attack")
@@ -2165,7 +2167,7 @@ async def dungeon_attack(request: DungeonAttackRequest, player_id: str = Depends
             }
 
     db.update_dungeon_run(run["id"], run["current_room"], state)
-    return _format_dungeon_status(run, dungeon_def)
+    return _format_dungeon_status(run, dungeon_def, player_id)
 
 
 @app.post("/api/dungeon/heal")
@@ -2256,7 +2258,7 @@ async def dungeon_heal(request: DungeonHealRequest, player_id: str = Depends(get
         state["current_turn_index"] = 0
 
     db.update_dungeon_run(run["id"], run["current_room"], state)
-    return _format_dungeon_status(run, dungeon_def)
+    return _format_dungeon_status(run, dungeon_def, player_id)
 
 
 @app.post("/api/dungeon/advance")
@@ -2309,7 +2311,7 @@ async def dungeon_advance(player_id: str = Depends(get_current_player)):
     db.update_dungeon_run(run["id"], next_room, next_state)
     run["current_room"] = next_room
     run["combat_state"] = next_state
-    return _format_dungeon_status(run, dungeon_def)
+    return _format_dungeon_status(run, dungeon_def, player_id)
 
 
 @app.post("/api/dungeon/flee")
