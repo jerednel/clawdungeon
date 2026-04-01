@@ -639,6 +639,7 @@ async def start_combat(
         'enemies': combat_enemies,
         'turn': 1,
         'player_health': character['health'],
+        'player_max_health': character['max_health'],
         'log': []
     }
     
@@ -648,7 +649,8 @@ async def start_combat(
 
 def format_combat_status(state: Dict) -> Dict:
     """Format combat state for display"""
-    health_pct = state['player_health'] / 100  # Simplified
+    max_hp = state.get('player_max_health', 100)
+    health_pct = state['player_health'] / max(max_hp, 1)
     health_bar = "█" * int(health_pct * 10) + "░" * (10 - int(health_pct * 10))
     
     enemy_list = []
@@ -672,7 +674,7 @@ def format_combat_status(state: Dict) -> Dict:
         "turn": state['turn'],
         "player": {
             "name": state['character_name'],
-            "health_bar": f"[{health_bar}] {state['player_health']}/100"
+            "health_bar": f"[{health_bar}] {state['player_health']}/{max_hp}"
         },
         "enemies": enemy_list,
         "actions": ["/api/combat/attack", "/api/combat/flee"],
@@ -692,9 +694,14 @@ async def combat_attack(
     if request.target >= len(state['enemies']):
         raise HTTPException(status_code=400, detail="Invalid target")
     
-    enemy = state['enemies'][request.target]
-    if enemy['health'] <= 0:
-        raise HTTPException(status_code=400, detail="Target already defeated")
+    # Auto-advance to first alive enemy if requested target is dead
+    target_idx = request.target
+    if state['enemies'][target_idx]['health'] <= 0:
+        alive = [i for i, e in enumerate(state['enemies']) if e['health'] > 0]
+        if not alive:
+            raise HTTPException(status_code=400, detail="All enemies already defeated")
+        target_idx = alive[0]
+    enemy = state['enemies'][target_idx]
     
     # Calculate damage with faction critical chance
     character = db.get_active_character(player_id)
