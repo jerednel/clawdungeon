@@ -2176,13 +2176,14 @@ async def dungeon_attack(request: DungeonAttackRequest, player_id: str = Depends
                             char["inventory"].append(loot)
                             db.update_character(m["player_id"], char)
             item_db_ref = db.get_item_database()
+            full_status = _format_dungeon_status(run, dungeon_def, player_id)
             return {
+                **full_status,
                 "result": "room_cleared",
                 "message": f"Room {run['current_room'] + 1} cleared!",
                 "loot_dropped": [item_db_ref.get(l, {}).get("name", l) for l in loot_drops],
                 "next_room": run["current_room"] + 2,
                 "total_rooms": total_rooms,
-                "log": state["log"][-10:],
                 "tip": "All members advance with POST /api/dungeon/advance",
             }
 
