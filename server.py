@@ -1661,6 +1661,26 @@ async def upload_portrait(
         "portrait_url": f"/portraits/{filename}"
     }
 
+
+
+@app.get("/api/leaderboard")
+async def get_global_leaderboard(limit: int = 10):
+    """Get global player leaderboard by level and XP."""
+    leaderboard = db.get_global_leaderboard(limit)
+    return {
+        "leaderboard": leaderboard,
+        "count": len(leaderboard),
+        "generated_at": datetime.now().isoformat()
+    }
+
+@app.get("/api/game/stats")
+async def get_game_stats():
+    """Get overall game statistics."""
+    stats = db.get_game_stats()
+    return {
+        "stats": stats,
+        "generated_at": datetime.now().isoformat()
+    }
 @app.get("/api/codex")
 async def get_codex():
     """Get all characters for the codex/player gallery"""

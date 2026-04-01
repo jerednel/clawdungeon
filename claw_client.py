@@ -15,6 +15,12 @@ from typing import Optional
 CONFIG_DIR = Path.home() / ".clawdungeon"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 DEFAULT_SERVER = "http://localhost:8000"  # Change to your VPS IP/domain
+DEFAULT_FACTIONS = {
+    'warrior': 'iron_vanguard',
+    'mage': 'arcane_council',
+    'rogue': 'shadow_syndicate',
+    'cleric': 'eternal_order',
+}
 
 class ClawDungeonClient:
     def __init__(self, server_url: str = None):
@@ -103,11 +109,13 @@ class ClawDungeonClient:
         print(f"   Welcome back, {result['username']}!")
         return True
     
-    def create_character(self, name: str, class_type: str):
+    def create_character(self, name: str, class_type: str, faction: Optional[str] = None):
         """Create a character"""
+        faction = faction or DEFAULT_FACTIONS.get(class_type)
         result = self._request('POST', '/api/character/create', {
             'name': name,
-            'class_type': class_type
+            'class_type': class_type,
+            'faction': faction
         })
         
         if 'error' in result:
@@ -119,6 +127,10 @@ class ClawDungeonClient:
         print(f"   Name: {char['name']}")
         print(f"   Class: {char['class']}")
         print(f"   Health: {char['health']}")
+        if faction:
+            print(f"   Faction: {faction}")
+        for action in result.get('next_actions', []):
+            print(f"   Next: {action['method']} {action['endpoint']}")
     
     def status(self):
         """Check character status"""
@@ -138,7 +150,7 @@ class ClawDungeonClient:
 🔮 {c['mana']}
 
 ⚔️ Attack: {c['attack']} | 🛡️ Defense: {c['defense']} | ⚡ Speed: {c['speed']}
-💰 Gold: {c['gold']} | ⭐ XP: {c['experience']}
+💰 Gold: {c['gold']} | ⭐ XP: {c['experience']['progress_bar']}
 
 🎒 Equipment:
    Weapon: {c['equipment']['weapon']}
@@ -150,7 +162,7 @@ class ClawDungeonClient:
     
     def fight(self, *enemies):
         """Start combat"""
-        result = self._request('POST', '/api/combat/start', list(enemies))
+        result = self._request('POST', '/api/combat/start', {'enemies': list(enemies)})
         
         if 'error' in result:
             print(f"❌ {result['error']}")
@@ -237,7 +249,8 @@ Account:
   claw set-server <url>             Set server URL
 
 Character:
-  claw create <name> <class>        Create character (warrior/mage/rogue/cleric)
+  claw create <name> <class> [faction]
+                                    Create character; faction is optional
   claw status                       View character status
 
 Combat:
@@ -247,7 +260,7 @@ Combat:
 
 Examples:
   claw register Jeremy
-  claw create "Jeremy" warrior
+  claw create "Jeremy" warrior iron_vanguard
   claw fight goblin skeleton
   claw attack 0
 """)
@@ -266,7 +279,8 @@ Examples:
     elif cmd == 'set-server' and args:
         client.set_server(args[0])
     elif cmd == 'create' and len(args) >= 2:
-        client.create_character(args[0], args[1])
+        faction = args[2] if len(args) >= 3 else None
+        client.create_character(args[0], args[1], faction)
     elif cmd == 'status':
         client.status()
     elif cmd == 'fight' and args:

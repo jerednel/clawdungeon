@@ -13,6 +13,15 @@ from typing import Optional, Dict, List
 BASE_PATH = Path(__file__).parent
 DB_PATH = BASE_PATH / "clawdungeon.db"
 
+LEGACY_ITEM_ALIASES = {
+    "wooden_sword": "starter_wooden_sword",
+    "mage_staff": "starter_apprentice_staff",
+    "rusty_dagger": "starter_rusty_daggers",
+    "holy_symbol": "starter_holy_symbol",
+    "leather_armor": "starter_leather_armor",
+    "cloth_robes": "starter_cloth_robes",
+}
+
 # Faction Database
 FACTIONS = {
     "iron_vanguard": {
@@ -21,7 +30,7 @@ FACTIONS = {
         "bonuses": {"health_percent": 0.10, "defense_percent": 0.05},
         "color": "Steel Gray & Gold",
         "theme": "warrior",
-        "starting_equipment": {"weapon": "wooden_sword", "armor": "leather_armor"}
+        "starting_equipment": {"weapon": "starter_wooden_sword", "armor": "starter_leather_armor"}
     },
     "arcane_council": {
         "name": "The Arcane Council",
@@ -29,7 +38,7 @@ FACTIONS = {
         "bonuses": {"mana_percent": 0.15, "magic_damage_percent": 0.10},
         "color": "Blue & Silver",
         "theme": "mage",
-        "starting_equipment": {"weapon": "mage_staff", "armor": "cloth_robes"}
+        "starting_equipment": {"weapon": "starter_apprentice_staff", "armor": "starter_cloth_robes"}
     },
     "shadow_syndicate": {
         "name": "The Shadow Syndicate",
@@ -37,7 +46,7 @@ FACTIONS = {
         "bonuses": {"speed_percent": 0.10, "critical_chance": 0.15},
         "color": "Black & Purple",
         "theme": "rogue",
-        "starting_equipment": {"weapon": "rusty_dagger", "armor": "leather_armor"}
+        "starting_equipment": {"weapon": "starter_rusty_daggers", "armor": "starter_leather_armor"}
     },
     "eternal_order": {
         "name": "The Eternal Order",
@@ -45,7 +54,7 @@ FACTIONS = {
         "bonuses": {"healing_percent": 0.20, "defense_percent": 0.05},
         "color": "White & Gold",
         "theme": "cleric",
-        "starting_equipment": {"weapon": "wooden_sword", "armor": "cloth_robes"}
+        "starting_equipment": {"weapon": "starter_holy_symbol", "armor": "starter_cloth_robes"}
     }
 }
 
@@ -55,7 +64,14 @@ def _load_item_database() -> Dict:
     item_db_path = BASE_PATH / "items" / "item_database.json"
     with open(item_db_path) as f:
         data = json.load(f)
-    return data.get("item_database", {})
+    item_database = data.get("item_database", {})
+
+    # Preserve support for legacy item ids that are still stored in character data.
+    for legacy_id, canonical_id in LEGACY_ITEM_ALIASES.items():
+        if legacy_id not in item_database and canonical_id in item_database:
+            item_database[legacy_id] = item_database[canonical_id]
+
+    return item_database
 
 ITEM_DATABASE = _load_item_database()
 
@@ -634,6 +650,54 @@ class Database:
                 for i, r in enumerate(rows)]
     
     # City methods
+
+
+    def get_global_leaderboard(self, limit: int = 10) -> List[Dict]:
+        """Get global player leaderboard across all factions"""
+        cursor = self.conn.cursor()
+        cursor.execute(
+            """SELECT name, class, level, experience, faction FROM characters 
+               WHERE status = 'active'
+               ORDER BY level DESC, experience DESC LIMIT ?""",
+            (limit,)
+        )
+        rows = cursor.fetchall()
+        return [{"rank": i+1, "name": r["name"], "class": r["class"], 
+                 "level": r["level"], "experience": r["experience"], "faction": r["faction"]} 
+                for i, r in enumerate(rows)]
+    
+    def get_game_stats(self) -> Dict:
+        """Get overall game statistics"""
+        cursor = self.conn.cursor()
+        
+        # Total players
+        cursor.execute("SELECT COUNT(*) as count FROM characters WHERE status = 'active'")
+        total_players = cursor.fetchone()["count"]
+        
+        # Total by class
+        cursor.execute("SELECT class, COUNT(*) as count FROM characters WHERE status = 'active' GROUP BY class")
+        class_counts = {r["class"]: r["count"] for r in cursor.fetchall()}
+        
+        # Total by faction
+        cursor.execute("SELECT faction, COUNT(*) as count FROM characters WHERE status = 'active' GROUP BY faction")
+        faction_counts = {r["faction"]: r["count"] for r in cursor.fetchall()}
+        
+        # Highest level
+        cursor.execute("SELECT MAX(level) as max_level FROM characters WHERE status = 'active'")
+        max_level = cursor.fetchone()["max_level"] or 0
+        
+        # Total combats (if tracked - table may not exist)
+        total_combats = 0  # Combat tracking not implemented yet
+        
+        return {
+            "total_players": total_players,
+            "class_distribution": class_counts,
+            "faction_distribution": faction_counts,
+            "highest_level": max_level,
+            "total_combats": total_combats,
+            "server_uptime": "unknown"  # Would need to track this separately
+        }
+
     def get_cities(self) -> Dict:
         """Get all city definitions"""
         return CITIES
@@ -790,14 +854,14 @@ class Database:
             },
             "tutorial_city_explorer": {
                 "id": "tutorial_city_explorer",
-                "title": "Welcome to Clawhaven",
-                "description": "Visit the Market, Tavern, and Temple districts of the city.",
+                "title": "Welcome to Civilization",
+                "description": "Visit any city to discover chat, storage, and the local notice board.",
                 "type": "exploration",
-                "requirements": {"locations": ["market", "tavern", "temple"]},
+                "requirements": {"city_visits": 1},
                 "prerequisites": {"level": 1},
                 "rewards": {"xp": 30, "gold": 15, "items": [], "reputation": {"city_guard": 5}},
                 "giver": "City Guide",
-                "location": "Town Square",
+                "location": "Any City",
                 "chain": None
             },
             
@@ -821,7 +885,7 @@ class Database:
                 "type": "kill",
                 "requirements": {"enemy_type": "orc", "count": 3},
                 "prerequisites": {"quest_completed": "warrior_initiation", "level": 3},
-                "rewards": {"xp": 200, "gold": 100, "items": ["leather_armor"], "reputation": {"warriors_guild": 25}},
+                "rewards": {"xp": 200, "gold": 100, "items": ["starter_leather_armor"], "reputation": {"warriors_guild": 25}},
                 "giver": "Guildmaster Thorne",
                 "location": "Warrior's Hall",
                 "chain": "warrior_path"
@@ -835,21 +899,21 @@ class Database:
                 "type": "delivery",
                 "requirements": {"items": {"mana_potion": 3}},
                 "prerequisites": {"class": "mage", "level": 1},
-                "rewards": {"xp": 100, "gold": 50, "items": ["mage_staff"], "reputation": {"arcane_academy": 15}},
+                "rewards": {"xp": 100, "gold": 50, "items": ["starter_apprentice_staff"], "reputation": {"arcane_academy": 15}},
                 "giver": "Archmage Celestia",
                 "location": "Arcane Academy",
                 "chain": "mage_path"
             },
             "mage_exploration": {
                 "id": "mage_exploration",
-                "title": "Ancient Ruins Discovery",
-                "description": "Visit the Ancient Ruins and report your findings.",
+                "title": "Spire Survey",
+                "description": "Travel to Starweaver's Spire and study its arcane halls.",
                 "type": "exploration",
-                "requirements": {"locations": ["ancient_ruins"]},
+                "requirements": {"city_ids": ["starweavers_spire"]},
                 "prerequisites": {"quest_completed": "mage_initiation", "level": 3},
                 "rewards": {"xp": 150, "gold": 75, "items": ["mana_potion", "mana_potion"], "reputation": {"arcane_academy": 20}},
                 "giver": "Archmage Celestia",
-                "location": "Arcane Academy",
+                "location": "Starweaver's Spire",
                 "chain": "mage_path"
             },
             
@@ -861,7 +925,7 @@ class Database:
                 "type": "kill",
                 "requirements": {"enemy_type": "spider", "count": 5},
                 "prerequisites": {"class": "rogue", "level": 1},
-                "rewards": {"xp": 100, "gold": 60, "items": ["rusty_dagger"], "reputation": {"shadow_guild": 15}},
+                "rewards": {"xp": 100, "gold": 60, "items": ["starter_rusty_daggers"], "reputation": {"shadow_guild": 15}},
                 "giver": "Shadowmaster Vex",
                 "location": "Shadow Den",
                 "chain": "rogue_path"
@@ -1034,6 +1098,54 @@ class Database:
             WHERE player_id = ? AND quest_id = ? AND status = 'active'
         """, (json.dumps(progress), player_id, quest_id))
         self.conn.commit()
+
+    def update_exploration_quest_progress(self, player_id: str, city_id: str, city: Dict) -> List[Dict]:
+        """Update active exploration quests based on a city visit."""
+        updates = []
+
+        for quest in self.get_player_active_quests(player_id):
+            if quest["type"] != "exploration":
+                continue
+
+            requirements = quest.get("requirements", {})
+            progress = quest.get("progress") or {}
+            changed = False
+
+            visited_cities = set(progress.get("visited_cities", []))
+            if city_id not in visited_cities:
+                visited_cities.add(city_id)
+                progress["visited_cities"] = sorted(visited_cities)
+                changed = True
+
+            visited_features = set(progress.get("visited_features", []))
+            for feature in city.get("features", []):
+                if feature not in visited_features:
+                    visited_features.add(feature)
+                    changed = True
+            if changed:
+                progress["visited_features"] = sorted(visited_features)
+
+            completed = False
+            if requirements.get("city_visits"):
+                completed = len(progress["visited_cities"]) >= requirements["city_visits"]
+            elif requirements.get("city_ids"):
+                completed = set(requirements["city_ids"]).issubset(set(progress["visited_cities"]))
+            elif requirements.get("locations"):
+                completed = set(requirements["locations"]).issubset(set(progress["visited_features"]))
+
+            progress["completed"] = completed
+
+            if changed:
+                self.update_quest_progress(player_id, quest["quest_id"], progress)
+
+            updates.append({
+                "quest_id": quest["quest_id"],
+                "title": quest["title"],
+                "completed": completed,
+                "progress": progress,
+            })
+
+        return updates
     
     def complete_quest(self, player_id: str, quest_id: str) -> bool:
         """Mark a quest as completed"""
@@ -1589,7 +1701,7 @@ class Database:
         cursor.execute("""
             SELECT c.name, c.class, c.faction, c.level, c.experience, c.gold,
                    c.max_health, c.max_mana, c.attack, c.defense, c.speed,
-                   c.magic_damage, c.healing_power, c.equipment, c.created_at,
+                   c.magic_damage, c.healing_power, c.equipment, c.inventory, c.created_at,
                    p.username
             FROM characters c
             JOIN players p ON c.player_id = p.id
@@ -1601,6 +1713,7 @@ class Database:
         for row in rows:
             char = dict(row)
             char['equipment'] = json.loads(char['equipment'])
+            char['inventory'] = json.loads(char['inventory'])
             characters.append(char)
         return characters
 
