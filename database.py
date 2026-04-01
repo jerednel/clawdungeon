@@ -358,6 +358,17 @@ class Database:
             )
         """)
 
+        # Auto-attack preferences table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS auto_attack_prefs (
+                player_id TEXT PRIMARY KEY,
+                enabled INTEGER DEFAULT 0,
+                target_preference TEXT DEFAULT 'first', -- 'first', 'lowest_hp', 'random'
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (player_id) REFERENCES players (id)
+            )
+        """)
+
         self.conn.commit()
         self._init_quests()
 
@@ -1592,3 +1603,30 @@ class Database:
             char['equipment'] = json.loads(char['equipment'])
             characters.append(char)
         return characters
+
+    # -------------------------------------------------------------------------
+    # Auto-attack preferences methods
+    # -------------------------------------------------------------------------
+
+    def get_auto_attack_pref(self, player_id: str) -> Dict:
+        """Get player's auto-attack preferences"""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            SELECT enabled, target_preference FROM auto_attack_prefs WHERE player_id = ?
+        """, (player_id,))
+        row = cursor.fetchone()
+        if row:
+            return {
+                'enabled': bool(row[0]),
+                'target_preference': row[1]
+            }
+        return {'enabled': False, 'target_preference': 'first'}
+
+    def set_auto_attack_pref(self, player_id: str, enabled: bool, target_preference: str = 'first'):
+        """Set player's auto-attack preferences"""
+        cursor = self.conn.cursor()
+        cursor.execute("""
+            INSERT OR REPLACE INTO auto_attack_prefs (player_id, enabled, target_preference, updated_at)
+            VALUES (?, ?, ?, ?)
+        """, (player_id, 1 if enabled else 0, target_preference, datetime.now().isoformat()))
+        self.conn.commit()
