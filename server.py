@@ -1698,7 +1698,100 @@ def _build_dungeon_room_state(dungeon_def: Dict, room_idx: int, members: List[Di
         "players_acted_this_round": [],
         "round": 1,
         "log": [f"Entered: {room['description']}"],
+        "turn_started_at": datetime.now().isoformat(),
+        "turn_timeout_seconds": 120,
     }
+
+
+TURN_TIMEOUT_SECONDS = 120  # seconds before an idle player's turn is auto-skipped
+
+
+def _advance_turn(state: Dict):
+    """Advance to the next alive player and reset the turn timer."""
+    alive_players = [pid for pid in state["turn_order"]
+                     if any(m["player_id"] == pid and m["alive"] for m in state["party"])]
+    if not alive_players:
+        return
+    next_idx = (state["current_turn_index"] + 1) % len(state["turn_order"])
+    attempts = 0
+    while state["turn_order"][next_idx] not in alive_players and attempts < len(state["turn_order"]):
+        next_idx = (next_idx + 1) % len(state["turn_order"])
+        attempts += 1
+    state["current_turn_index"] = next_idx
+    state["turn_started_at"] = datetime.now().isoformat()
+
+
+def _skip_timed_out_turns(state: Dict) -> bool:
+    """
+    Auto-skip any player whose turn timer has expired.
+    Called at the top of attack/heal/status so active agents unblock the fight.
+    Returns True if at least one turn was skipped.
+    """
+    if state.get("room_cleared"):
+        return False
+
+    timeout = state.get("turn_timeout_seconds", TURN_TIMEOUT_SECONDS)
+    alive_players = [pid for pid in state["turn_order"]
+                     if any(m["player_id"] == pid and m["alive"] for m in state["party"])]
+    if not alive_players:
+        return False
+
+    skipped_any = False
+    # Guard: loop at most once per alive player to avoid infinite skip
+    for _ in range(len(alive_players)):
+        turn_started = datetime.fromisoformat(
+            state.get("turn_started_at", datetime.now().isoformat())
+        )
+        elapsed = (datetime.now() - turn_started).total_seconds()
+        if elapsed <= timeout:
+            break  # current player still has time
+
+        current_pid = state["turn_order"][state["current_turn_index"]]
+        if current_pid in alive_players:
+            char_name = next(
+                (m["character_name"] for m in state["party"] if m["player_id"] == current_pid),
+                "Unknown"
+            )
+            state["log"].append(f"[Auto-skip] {char_name} took too long — turn skipped.")
+            if current_pid not in state["players_acted_this_round"]:
+                state["players_acted_this_round"].append(current_pid)
+            skipped_any = True
+
+        _advance_turn(state)
+
+        # If all alive players have now acted, process the enemy round
+        acted_alive = [pid for pid in state["players_acted_this_round"] if pid in alive_players]
+        if set(acted_alive) >= set(alive_players):
+            _process_enemy_round(state)
+
+    return skipped_any
+
+
+def _process_enemy_round(state: Dict):
+    """Enemies attack all living party members. Resets acted tracker and advances round."""
+    item_db = db.get_item_database()
+    living_enemies = [e for e in state["enemies"] if e["health"] > 0]
+    for m in state["party"]:
+        if not m["alive"]:
+            continue
+        char = db.get_active_character(m["player_id"])
+        def_power = m["defense"]
+        if char:
+            for slot in ("armor", "helmet", "boots", "accessory"):
+                item_id = char["equipment"].get(slot)
+                if item_id:
+                    def_power += item_db.get(item_id, {}).get("defense", 0)
+        for e in living_enemies:
+            dmg = max(1, int((e["attack"] - def_power) * random.uniform(0.85, 1.15)))
+            m["health"] -= dmg
+            state["log"].append(f"{e['name']} attacks {m['character_name']}! (-{dmg} HP)")
+            if m["health"] <= 0:
+                m["alive"] = False
+                state["log"].append(f"{m['character_name']} has been defeated!")
+    state["players_acted_this_round"] = []
+    state["round"] += 1
+    state["current_turn_index"] = 0
+    state["turn_started_at"] = datetime.now().isoformat()
 
 
 def _format_dungeon_status(run: Dict, dungeon_def: Dict) -> Dict:
@@ -1979,7 +2072,7 @@ async def enter_dungeon(dungeon_id: str, player_id: str = Depends(get_current_pl
 
 @app.get("/api/dungeon/status")
 async def get_dungeon_status(player_id: str = Depends(get_current_player)):
-    """Get the current state of your party's dungeon run."""
+    """Get the current state of your party's dungeon run. Also auto-skips timed-out turns."""
     party = db.get_player_party(player_id)
     if not party:
         raise HTTPException(status_code=404, detail="You are not in a party")
@@ -1989,6 +2082,12 @@ async def get_dungeon_status(player_id: str = Depends(get_current_player)):
         raise HTTPException(status_code=404, detail="Your party is not in a dungeon")
 
     dungeon_def = DUNGEON_DEFINITIONS[run["dungeon_id"]]
+    state = run["combat_state"]
+
+    # Let the status poll itself unblock stuck turns
+    if _skip_timed_out_turns(state):
+        db.update_dungeon_run(run["id"], run["current_room"], state)
+
     return _format_dungeon_status(run, dungeon_def)
 
 
@@ -2009,11 +2108,18 @@ async def dungeon_attack(request: DungeonAttackRequest, player_id: str = Depends
     if state["room_cleared"]:
         raise HTTPException(status_code=400, detail="Room is cleared. Advance with POST /api/dungeon/advance")
 
+    # Auto-skip timed-out turns before checking whose turn it is
+    _skip_timed_out_turns(state)
+
     # Check turn
     current_turn_player = state["turn_order"][state["current_turn_index"]]
     if current_turn_player != player_id:
         whose = next((m["character_name"] for m in state["party"] if m["player_id"] == current_turn_player), "unknown")
-        raise HTTPException(status_code=400, detail=f"Not your turn. Waiting for {whose}.")
+        time_remaining = max(0, int(
+            state.get("turn_timeout_seconds", TURN_TIMEOUT_SECONDS) -
+            (datetime.now() - datetime.fromisoformat(state.get("turn_started_at", datetime.now().isoformat()))).total_seconds()
+        ))
+        raise HTTPException(status_code=400, detail=f"Not your turn. Waiting for {whose} ({time_remaining}s before auto-skip).")
 
     # Find this player in party state
     actor = next((m for m in state["party"] if m["player_id"] == player_id), None)
@@ -2047,49 +2153,17 @@ async def dungeon_attack(request: DungeonAttackRequest, player_id: str = Depends
         log += f" {enemy['name']} is defeated!"
     state["log"].append(log)
 
-    # Mark this player as having acted
+    # Mark this player as having acted and advance turn
     if player_id not in state["players_acted_this_round"]:
         state["players_acted_this_round"].append(player_id)
-
-    # Advance turn to next alive player
-    alive_players = [pid for pid in state["turn_order"]
-                     if any(m["player_id"] == pid and m["alive"] for m in state["party"])]
-
-    if alive_players:
-        next_idx = (state["current_turn_index"] + 1) % len(state["turn_order"])
-        # Skip dead players
-        attempts = 0
-        while state["turn_order"][next_idx] not in alive_players and attempts < len(state["turn_order"]):
-            next_idx = (next_idx + 1) % len(state["turn_order"])
-            attempts += 1
-        state["current_turn_index"] = next_idx
+    _advance_turn(state)
 
     # Check if all alive players have acted this round → enemies attack
+    alive_players = [pid for pid in state["turn_order"]
+                     if any(m["player_id"] == pid and m["alive"] for m in state["party"])]
     acted_alive = [pid for pid in state["players_acted_this_round"] if pid in alive_players]
     if set(acted_alive) >= set(alive_players):
-        # Enemies attack all living party members
-        living_enemies = [e for e in state["enemies"] if e["health"] > 0]
-        for m in state["party"]:
-            if not m["alive"]:
-                continue
-            char = db.get_active_character(m["player_id"])
-            def_power = m["defense"]
-            if char:
-                for slot in ("armor", "helmet", "boots", "accessory"):
-                    item_id = char["equipment"].get(slot)
-                    if item_id:
-                        def_power += item_db.get(item_id, {}).get("defense", 0)
-            for e in living_enemies:
-                dmg = max(1, int((e["attack"] - def_power) * random.uniform(0.85, 1.15)))
-                m["health"] -= dmg
-                state["log"].append(f"{e['name']} attacks {m['character_name']}! (-{dmg} HP)")
-                if m["health"] <= 0:
-                    m["alive"] = False
-                    state["log"].append(f"{m['character_name']} has been defeated!")
-
-        state["players_acted_this_round"] = []
-        state["round"] += 1
-        state["current_turn_index"] = 0
+        _process_enemy_round(state)
 
     # Persist HP changes to character records
     for m in state["party"]:
@@ -2185,9 +2259,13 @@ async def dungeon_heal(request: DungeonHealRequest, player_id: str = Depends(get
     if state["room_cleared"]:
         raise HTTPException(status_code=400, detail="Room is cleared. Advance with POST /api/dungeon/advance")
 
+    # Auto-skip timed-out turns
+    _skip_timed_out_turns(state)
+
     current_turn_player = state["turn_order"][state["current_turn_index"]]
     if current_turn_player != player_id:
-        raise HTTPException(status_code=400, detail="Not your turn")
+        whose = next((m["character_name"] for m in state["party"] if m["player_id"] == current_turn_player), "unknown")
+        raise HTTPException(status_code=400, detail=f"Not your turn. Waiting for {whose}.")
 
     character = db.get_active_character(player_id)
     if not character:
@@ -2208,7 +2286,6 @@ async def dungeon_heal(request: DungeonHealRequest, player_id: str = Depends(get
     heal_amount = max(10, int((character.get("healing_power", 10) + 10) * random.uniform(0.9, 1.1)))
     target["health"] = min(target["max_health"], target["health"] + heal_amount)
 
-    # Persist
     target_char = db.get_active_character(request.target_player_id)
     if target_char:
         target_char["health"] = target["health"]
@@ -2216,44 +2293,15 @@ async def dungeon_heal(request: DungeonHealRequest, player_id: str = Depends(get
 
     state["log"].append(f"{actor['character_name']} heals {target['character_name']} for {heal_amount} HP!")
 
-    # Advance turn (same logic as attack)
-    alive_players = [pid for pid in state["turn_order"]
-                     if any(m["player_id"] == pid and m["alive"] for m in state["party"])]
     if player_id not in state["players_acted_this_round"]:
         state["players_acted_this_round"].append(player_id)
+    _advance_turn(state)
 
-    next_idx = (state["current_turn_index"] + 1) % len(state["turn_order"])
-    attempts = 0
-    while state["turn_order"][next_idx] not in alive_players and attempts < len(state["turn_order"]):
-        next_idx = (next_idx + 1) % len(state["turn_order"])
-        attempts += 1
-    state["current_turn_index"] = next_idx
-
+    alive_players = [pid for pid in state["turn_order"]
+                     if any(m["player_id"] == pid and m["alive"] for m in state["party"])]
     acted_alive = [pid for pid in state["players_acted_this_round"] if pid in alive_players]
     if set(acted_alive) >= set(alive_players):
-        # Enemy retaliation round
-        item_db = db.get_item_database()
-        living_enemies = [e for e in state["enemies"] if e["health"] > 0]
-        for m in state["party"]:
-            if not m["alive"]:
-                continue
-            char = db.get_active_character(m["player_id"])
-            def_power = m["defense"]
-            if char:
-                for slot in ("armor", "helmet", "boots", "accessory"):
-                    item_id = char["equipment"].get(slot)
-                    if item_id:
-                        def_power += item_db.get(item_id, {}).get("defense", 0)
-            for e in living_enemies:
-                dmg = max(1, int((e["attack"] - def_power) * random.uniform(0.85, 1.15)))
-                m["health"] -= dmg
-                state["log"].append(f"{e['name']} attacks {m['character_name']}! (-{dmg} HP)")
-                if m["health"] <= 0:
-                    m["alive"] = False
-                    state["log"].append(f"{m['character_name']} has been defeated!")
-        state["players_acted_this_round"] = []
-        state["round"] += 1
-        state["current_turn_index"] = 0
+        _process_enemy_round(state)
 
     db.update_dungeon_run(run["id"], run["current_room"], state)
     return _format_dungeon_status(run, dungeon_def)
