@@ -2217,3 +2217,246 @@ class Database:
                 'created_at': row[6]
             })
         return requests
+
+
+# NPC Dialogue System
+NPC_DIALOGUES = {
+    "guildmaster_thorne": {
+        "name": "Guildmaster Thorne",
+        "title": "Master of the Iron Vanguard",
+        "greetings": {
+            "neutral": [
+                "Hmm? What do you want?",
+                "State your business, recruit.",
+                "The Iron Vanguard doesn't coddle the weak.",
+                "Speak quickly. I have training to oversee."
+            ],
+            "friendly": [
+                "Good to see you, warrior!",
+                "Back from the field? Tell me of your victories.",
+                "You've got the look of someone who's seen combat.",
+                "The Guild could use more like you."
+            ],
+            "honored": [
+                "Well met, veteran!",
+                "Your name is spoken with respect in these halls.",
+                "The young warriors look up to you.",
+                "What wisdom can you share with our recruits?"
+            ],
+            "revered": [
+                "My finest student!",
+                "The Champion returns! All rise!",
+                "Your deeds honor the Iron Vanguard.",
+                "Commander! What orders do you bring?"
+            ]
+        },
+        "farewells": [
+            "Fight with honor.",
+            "Return victorious or not at all.",
+            "Iron and blood, warrior.",
+            "The Vanguard watches."
+        ],
+        "quest_offers": [
+            "I have a task that requires steel and courage...",
+            "The Guild needs you. A matter of honor.",
+            "There's work for a warrior of your caliber.",
+            "Prove yourself. Take this mission."
+        ],
+        "tips": [
+            "Strike first, strike hard.",
+            "Armor is your second skin. Maintain it.",
+            "Never turn your back on a fallen foe.",
+            "Strength without discipline is just rage."
+        ]
+    },
+    "archmage_celestia": {
+        "name": "Archmage Celestia",
+        "title": "Head of the Arcane Academy",
+        "greetings": {
+            "neutral": [
+                "The arcane whispers... do you hear it?",
+                "Do you seek knowledge or power? They are not the same.",
+                "Another curious mind. How refreshing.",
+                "The Spire recognizes your potential. Barely."
+            ],
+            "friendly": [
+                "Welcome, seeker. The stars align for you.",
+                "Your magical aura has grown since we last spoke.",
+                "I sense wisdom in you. Rare in these times.",
+                "The Academy welcomes your curiosity."
+            ],
+            "honored": [
+                "You honor us with your presence, mage.",
+                "Your mastery of the arcane is noted.",
+                "The Spire itself seems brighter in your presence.",
+                "What secrets have you uncovered in your studies?"
+            ],
+            "revered": [
+                "Archmage. The Spire is yours.",
+                "Your power rivals the ancient ones.",
+                "The Academy bows to your wisdom.",
+                "What truth do you seek in the weave of magic?"
+            ]
+        },
+        "farewells": [
+            "May the arcane guide your path.",
+            "Knowledge is power. Use both wisely.",
+            "The mysteries await your return.",
+            "Remember: magic is a tool, not a master."
+        ],
+        "quest_offers": [
+            "I have sensed something... an arcane disturbance.",
+            "The Academy requires assistance. Of the magical variety.",
+            "There is power to be found, for the worthy.",
+            "A riddle has appeared. Perhaps you can solve it."
+        ],
+        "tips": [
+            "Magic flows where intention directs it.",
+            "Study the old texts. They hide truths.",
+            "Never cast without understanding the cost.",
+            "The weave connects all things. Learn to see it."
+        ]
+    },
+    "shadowmaster_vex": {
+        "name": "Shadowmaster Vex",
+        "title": "Leader of the Shadow Syndicate",
+        "greetings": {
+            "neutral": [
+                "*steps from shadows* You were followed?",
+                "Information has a price. Do you have coin?",
+                "The Syndicate sees all. Even you.",
+                "Why should I trust you with our secrets?"
+            ],
+            "friendly": [
+                "*materializes from nowhere* Ahh, my favorite client.",
+                "You have the instincts of a shadow.",
+                "Information flows both ways. What do you bring?",
+                "The Syndicate values your... discretion."
+            ],
+            "honored": [
+                "*nods from the darkness* You have earned our respect.",
+                "The shadows whisper your name with approval.",
+                "You understand the true currency: secrets.",
+                "What shadows do you wish to walk today?"
+            ],
+            "revered": [
+                "*kneels briefly* Master of shadows.",
+                "The Syndicate is yours to command.",
+                "You have surpassed even my teachings.",
+                "What truth do you seek in the dark?"
+            ]
+        },
+        "farewells": [
+            "Leave no trace.",
+            "Trust no one. Especially not me.",
+            "The shadows hide many things. Be one of them.",
+            "Information is power. Guard yours well."
+        ],
+        "quest_offers": [
+            "I have a job. Discretion required.",
+            "There is information to be... acquired.",
+            "Someone needs to disappear. Can you arrange that?",
+            "The Syndicate has interests that need protection."
+        ],
+        "tips": [
+            "Silence is louder than steel.",
+            "Trust is a weapon. Use it sparingly.",
+            "The best kill is the one that looks like accident.",
+            "In the dark, all cats are gray."
+        ]
+    },
+    "high_priestess_luna": {
+        "name": "High Priestess Luna",
+        "title": "Leader of the Eternal Order",
+        "greetings": {
+            "neutral": [
+                "The Light welcomes all who seek it.",
+                "Do you carry wounds of body or spirit?",
+                "Another soul in need of guidance.",
+                "The Eternal Order offers sanctuary."
+            ],
+            "friendly": [
+                "Welcome back, child of light.",
+                "Your aura shines with goodness.",
+                "The Order is blessed by your presence.",
+                "How may the Light guide you today?"
+            ],
+            "honored": [
+                "Your faith has made you strong, blessed one.",
+                "The Light shines brightly through you.",
+                "Many have been healed by your hands.",
+                "What miracles have you witnessed?"
+            ],
+            "revered": [
+                "Saint of the Order! Kneel before your light!",
+                "Your faith moves mountains.",
+                "The divine speaks through you.",
+                "What blessing do you bring to the faithful?"
+            ]
+        },
+        "farewells": [
+            "May the Light guide your steps.",
+            "Go in peace, and serve the Light.",
+            "The Order prays for your safety.",
+            "Remember: compassion is the greatest strength."
+        ],
+        "quest_offers": [
+            "The Light has shown me a soul in need.",
+            "There is healing to be done. Will you help?",
+            "Darkness threatens the innocent. We must act.",
+            "A pilgrimage is needed. You have the strength."
+        ],
+        "tips": [
+            "Heal others, and you heal yourself.",
+            "The Light reveals truth in darkness.",
+            "Faith without action is just words.",
+            "Even the smallest kindness can save a soul."
+        ]
+    }
+}
+
+def get_reputation_level(reputation: int) -> str:
+    """Convert reputation score to level name"""
+    if reputation >= 75:
+        return "revered"
+    elif reputation >= 50:
+        return "honored"
+    elif reputation >= 25:
+        return "friendly"
+    else:
+        return "neutral"
+
+def get_npc_dialogue(npc_id: str, dialogue_type: str = "greeting", reputation: int = 0) -> dict:
+    """Get appropriate dialogue for an NPC based on reputation"""
+    npc = NPC_DIALOGUES.get(npc_id)
+    if not npc:
+        return {"error": "NPC not found"}
+    
+    import random
+    rep_level = get_reputation_level(reputation)
+    
+    if dialogue_type == "greeting":
+        options = npc["greetings"].get(rep_level, npc["greetings"]["neutral"])
+        return {
+            "npc_name": npc["name"],
+            "npc_title": npc["title"],
+            "reputation_level": rep_level,
+            "dialogue": random.choice(options)
+        }
+    elif dialogue_type == "farewell":
+        return {
+            "npc_name": npc["name"],
+            "dialogue": random.choice(npc["farewells"])
+        }
+    elif dialogue_type == "quest_offer":
+        return {
+            "npc_name": npc["name"],
+            "dialogue": random.choice(npc["quest_offers"])
+        }
+    elif dialogue_type == "tip":
+        return {
+            "npc_name": npc["name"],
+            "dialogue": random.choice(npc["tips"])
+        }
+    else:
+        return {"error": "Invalid dialogue type"}

@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from passlib.context import CryptContext
 
 # Database (using a simple dict for now, replace with SQLite)
-from database import Database, FACTIONS
+from database import Database, FACTIONS, get_npc_dialogue
 from leveling import (
     add_experience, get_level_info, calculate_enemy_xp,
     get_level_tier, xp_for_next_level, xp_progress
@@ -1746,6 +1746,28 @@ async def get_discovered_lore(player_id: str = Depends(get_current_player)):
     all_entries = db.get_lore_entries(player_id)
     discovered = [e for e in all_entries if e.get('discovered')]
     return {"discovered_lore": discovered, "count": len(discovered)}
+
+
+@app.get("/api/npc/{npc_id}/dialogue")
+async def get_npc_dialogue_endpoint(
+    npc_id: str,
+    dialogue_type: str = "greeting",
+    player_id: str = Depends(get_current_player)
+):
+    """Get dialogue from an NPC. Types: greeting, farewell, quest_offer, tip"""
+    # Get player reputation (simplified - would come from reputation system)
+    reputation = 0  # TODO: Get from player reputation table
+    
+    dialogue = get_npc_dialogue(npc_id, dialogue_type, reputation)
+    if "error" in dialogue:
+        raise HTTPException(status_code=404, detail=dialogue["error"])
+    
+    return {
+        "npc_id": npc_id,
+        "dialogue_type": dialogue_type,
+        "dialogue": dialogue
+    }
+
 
 @app.get("/api/leaderboard")
 async def get_global_leaderboard(limit: int = 10):
