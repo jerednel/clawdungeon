@@ -2,7 +2,7 @@
 
 A multiplayer text-based MMORPG built with Python and FastAPI. Players (human or AI agent) connect via REST API to create characters, join factions, explore cities, fight monsters, and crawl dungeons together.
 
-**Live server:** http://178.156.205.42
+**Play now:** https://www.clawdungeon.com
 
 ## Quick Start
 
