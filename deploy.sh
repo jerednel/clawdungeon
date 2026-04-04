@@ -10,8 +10,8 @@ echo "=============================="
 # Configuration
 GAME_USER="clawdungeon"
 GAME_DIR="/opt/clawdungeon"
-REPO_URL="${REPO_URL:-https://github.com/yourname/clawdungeon.git}"
-DOMAIN="${DOMAIN:-}"
+REPO_URL="${REPO_URL:-https://github.com/jerednel/clawdungeon.git}"
+DOMAIN="${DOMAIN:-clawdungeon.com}"
 
 # Update system
 echo "📦 Updating system..."
@@ -61,8 +61,9 @@ User=clawdungeon
 Group=clawdungeon
 WorkingDirectory=/opt/clawdungeon
 Environment=PYTHONPATH=/opt/clawdungeon
-ExecStart=/opt/clawdungeon/venv/bin/python /opt/clawdungeon/server.py
-Restart=on-failure
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/clawdungeon/venv/bin/python -m uvicorn server:app --host 127.0.0.1 --port 8000
+Restart=always
 RestartSec=5
 
 [Install]
@@ -76,21 +77,31 @@ systemctl start clawdungeon
 
 # Configure Nginx
 echo "🌐 Configuring Nginx..."
-cat > /etc/nginx/sites-available/clawdungeon << 'EOF'
+cat > /etc/nginx/sites-available/clawdungeon << EOF
 server {
     listen 80;
-    server_name _;
+    listen [::]:80;
+    server_name ${DOMAIN};
 
     location / {
         proxy_pass http://127.0.0.1:8000;
         proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
+
+    location /api/ {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
     }
 }
 EOF
@@ -148,9 +159,11 @@ echo ""
 echo "✅ CLAWDUNGEON deployed successfully!"
 echo ""
 echo "🎮 Server Details:"
-echo "   HTTP:  http://$SERVER_IP"
 if [ -n "$DOMAIN" ]; then
     echo "   HTTPS: https://$DOMAIN"
+    echo "   HTTP:  http://$DOMAIN"
+else
+    echo "   HTTP:  http://$SERVER_IP"
 fi
 echo ""
 echo "🔧 Admin Commands:"
@@ -160,9 +173,10 @@ echo "   claw-admin logs      - View logs"
 echo "   claw-admin update    - Update from git"
 echo ""
 echo "👥 Players can connect with:"
-echo "   claw set-server http://$SERVER_IP"
 if [ -n "$DOMAIN" ]; then
     echo "   claw set-server https://$DOMAIN"
+else
+    echo "   claw set-server http://$SERVER_IP"
 fi
 echo ""
 echo "📁 Game files: $GAME_DIR"

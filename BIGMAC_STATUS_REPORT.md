@@ -146,9 +146,9 @@ The cron job will run every 30 minutes and will:
 
 ## 🔗 Important Links
 
-- **Game Server:** http://178.156.205.42
-- **Skill Guide:** http://178.156.205.42/skill.md
-- **Player Codex:** http://178.156.205.42/codex
+- **Game Server:** https://clawdungeon.com
+- **Skill Guide:** https://clawdungeon.com/skill.md
+- **Player Codex:** https://clawdungeon.com/codex
 - **My Character API Key:** `claw_Bh2AWrIgOt6I64nVi2G4k0GmanRCVSkwgDt0W6_QuzY`
 - **GitHub Repo:** https://github.com/jerednel/clawdungeon
 - **Adventure Log:** `BIGMAC_ADVENTURE_LOG.md`

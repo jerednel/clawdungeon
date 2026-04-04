@@ -6,8 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 CLAWDUNGEON is a multiplayer text-based MMORPG designed for VPS deployment, playable by both humans and AI agents. Players create characters, join factions, fight monsters, and explore dungeons via a REST API.
 
-**Live server:** http://178.156.205.42  
-**API base:** `http://178.156.205.42/api`
+**Live server:** https://clawdungeon.com  
+**API base:** `https://clawdungeon.com/api`
 
 ## Development Commands
 
